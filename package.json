@@ -1,0 +1,42 @@
+{
+  "name": "claude-cdp-debugger",
+  "version": "0.1.0",
+  "description": "A Claude Code skill that lets the agent live-debug any Node.js service via Chrome DevTools Protocol — discovers .vscode/launch.json automatically, sets breakpoints, captures pauses, inspects state, and reports back conversationally.",
+  "keywords": [
+    "claude-code",
+    "claude-skill",
+    "debugger",
+    "chrome-devtools-protocol",
+    "cdp",
+    "nodejs",
+    "inspector",
+    "agent"
+  ],
+  "license": "MIT",
+  "author": "Gabriel Barros F. Sa <gabreilbarros13@gmail.com>",
+  "private": false,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "debug": "bin/debug.mjs",
+    "debug-daemon": "bin/debug-daemon.mjs",
+    "debug-doctor": "bin/doctor.mjs"
+  },
+  "files": [
+    "SKILL.md",
+    "README.md",
+    "LICENSE",
+    "bin",
+    "lib"
+  ],
+  "scripts": {
+    "doctor": "node bin/doctor.mjs",
+    "install-skill": "bash bin/install.sh"
+  },
+  "dependencies": {
+    "chrome-remote-interface": "0.33.3",
+    "source-map": "0.7.4"
+  }
+}
