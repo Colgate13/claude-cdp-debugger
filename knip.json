@@ -1,9 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": [
-    "src/bin/debug.ts",
-    "src/bin/debug-daemon.ts",
-    "src/bin/doctor.ts",
+    "src/bin/cdp.ts",
     "scripts/*.mjs",
     "test/**/*.test.ts",
     "test-integration/**/*.test.ts"

@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Shim that resolves the plugin root and execs the bundled CLI.
+# If dist/cli.js is missing (e.g., user did /plugin install without running
+# install.sh first), build it on the fly so `cdp` works out-of-the-box.
+
+set -e
+
+PLUGIN_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
+CLI="$PLUGIN_ROOT/dist/cli.js"
+
+if [ ! -f "$CLI" ]; then
+  echo "[cdp] first run — installing deps and building (one-time, ~30s)..." >&2
+  ( cd "$PLUGIN_ROOT" && npm ci --silent && npm run build ) >&2
+fi
+
+exec node "$CLI" "$@"

@@ -10,7 +10,9 @@ const DIST = join(REPO, 'dist');
 const REPORT_DIR = join(REPO, 'quality-reports');
 const REPORT_FILE = join(REPORT_DIR, 'bundle-size.json');
 // Pure JS payload threshold (.js files only). Sourcemaps excluded.
-const THRESHOLD_KB = Number(process.env.BUNDLE_SIZE_THRESHOLD_KB ?? 100);
+// Bundled output includes runtime deps (chrome-remote-interface, source-map);
+// 1500KB leaves room for incidental growth without masking real regressions.
+const THRESHOLD_KB = Number(process.env.BUNDLE_SIZE_THRESHOLD_KB ?? 1500);
 
 if (!existsSync(DIST)) {
   console.error(`dist/ does not exist — run \`npm run build\` first.`);

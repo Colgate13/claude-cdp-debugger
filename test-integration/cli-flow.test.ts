@@ -11,7 +11,7 @@ import { socketPath, pidPath, logPath, bpsPath } from '../src/lib/ipc.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = dirname(HERE);
-const DEBUG_CLI = join(REPO, 'dist', 'bin', 'debug.js');
+const DEBUG_CLI = join(REPO, 'dist', 'cli.js');
 const FIXTURE_TEMPLATE = join(HERE, 'fixture-template');
 // Use a non-default port to reduce collision risk in CI/dev machines.
 const PORT = 9333;

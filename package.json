@@ -1,9 +1,10 @@
 {
   "name": "claude-cdp-debugger",
   "version": "0.2.0",
-  "description": "A Claude Code skill that lets the agent live-debug any Node.js service via Chrome DevTools Protocol — discovers .vscode/launch.json automatically, sets breakpoints, captures pauses, inspects state, and reports back conversationally.",
+  "description": "A Claude Code plugin that lets the agent live-debug any Node.js service via Chrome DevTools Protocol — discovers .vscode/launch.json automatically, sets breakpoints, captures pauses, inspects state, and reports back conversationally.",
   "keywords": [
     "claude-code",
+    "claude-plugin",
     "claude-skill",
     "debugger",
     "chrome-devtools-protocol",
@@ -20,19 +21,21 @@
     "node": ">=22"
   },
   "bin": {
-    "debug": "dist/bin/debug.js",
-    "debug-daemon": "dist/bin/debug-daemon.js",
-    "debug-doctor": "dist/bin/doctor.js"
+    "cdp": "bin/cdp"
   },
   "files": [
-    "SKILL.md",
     "README.md",
+    "INSTALL.md",
+    "TROUBLESHOOTING.md",
     "LICENSE",
     "dist",
-    "bin/install.sh"
+    "bin/cdp",
+    "bin/install.sh",
+    "skills",
+    ".claude-plugin"
   ],
   "scripts": {
-    "build": "tsc && node scripts/post-build.mjs",
+    "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
     "typecheck:test": "tsc -p tsconfig.test.json",
     "lint": "eslint .",
@@ -49,8 +52,7 @@
     "audit": "npm audit --omit=dev --audit-level=high",
     "bundle:size": "node scripts/bundle-size.mjs",
     "quality": "node scripts/quality-gate.mjs",
-    "doctor": "node dist/bin/doctor.js",
-    "install-skill": "npm install && npm run build && bash bin/install.sh",
+    "doctor": "node dist/cli.js doctor",
     "prepack": "npm run build"
   },
   "dependencies": {
@@ -62,6 +64,7 @@
     "@types/node": "^22.10.5",
     "c8": "^11.0.0",
     "devtools-protocol": "0.0.1173815",
+    "esbuild": "^0.27.7",
     "eslint": "^9.18.0",
     "jscpd": "^4.0.9",
     "knip": "^6.12.1",

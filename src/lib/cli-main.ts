@@ -1,15 +1,10 @@
-#!/usr/bin/env node
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, openSync, readdirSync, statSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join, resolve } from 'node:path';
-import { detect, findProjectRoot, slugify } from '../lib/detect.js';
-import { ipcRequest, isSocketAlive, socketPath, logPath } from '../lib/ipc.js';
-import type { ProjectConfig } from '../lib/types.js';
-
-// dist/bin/debug.js → up two = dist/, up three = repo root
-const SKILL_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
-const DAEMON_SCRIPT = join(SKILL_ROOT, 'dist', 'bin', 'debug-daemon.js');
+import { join, resolve } from 'node:path';
+import { detect, findProjectRoot, slugify } from './detect.js';
+import { ipcRequest, isSocketAlive, socketPath, logPath } from './ipc.js';
+import type { ProjectConfig } from './types.js';
+import { runDoctor } from './doctor-main.js';
 
 interface ParsedArgs {
   project?: string;
@@ -32,12 +27,18 @@ function err(msg: string, extra: Record<string, unknown> = {}): never {
   process.exit(1);
 }
 
-function ensureDeps(): void {
-  const crii = join(SKILL_ROOT, 'node_modules', 'chrome-remote-interface', 'package.json');
-  if (existsSync(crii)) return;
-  const r = spawnSync('npm', ['install', '--omit=dev', '--prefix', SKILL_ROOT, '--loglevel=error'], { encoding: 'utf8' });
+function ensureDeps(skillRoot: string): void {
+  // chrome-remote-interface and source-map are bundled into dist/cli.js;
+  // this check is a safety net for edge cases where the bundle wasn't produced.
+  const cli = join(skillRoot, 'dist', 'cli.js');
+  if (existsSync(cli)) return;
+  const r = spawnSync('npm', ['install', '--prefix', skillRoot, '--loglevel=error'], { encoding: 'utf8' });
   if (r.status !== 0) {
     err(`Failed to install skill deps: ${r.stderr || r.stdout}`);
+  }
+  const r2 = spawnSync('npm', ['run', 'build', '--prefix', skillRoot], { encoding: 'utf8' });
+  if (r2.status !== 0) {
+    err(`Failed to build: ${r2.stderr || r2.stdout}`);
   }
 }
 
@@ -120,8 +121,8 @@ async function waitForLogEvent(
   return null;
 }
 
-async function cmdStart(args: ParsedArgs): Promise<void> {
-  ensureDeps();
+async function cmdStart(args: ParsedArgs, selfPath: string, skillRoot: string): Promise<void> {
+  ensureDeps(skillRoot);
   const cfg = await getProjectConfig(args);
   const existing = await findDaemonBySlug(cfg.slug);
   if (existing) {
@@ -148,10 +149,10 @@ async function cmdStart(args: ParsedArgs): Promise<void> {
     });
   }
   const daemonOut = openSync(`/tmp/claude-debug-${cfg.slug}.daemon.log`, 'a');
-  const daemonArgs = ['--project', cfg.projectRoot];
+  const daemonArgs = ['__daemon', '--project', cfg.projectRoot];
   if (args.reattach) daemonArgs.push('--reattach');
   if (args.idleTimeout) daemonArgs.push('--idle-timeout', String(args.idleTimeout));
-  const child = spawn(process.execPath, [DAEMON_SCRIPT, ...daemonArgs], {
+  const child = spawn(process.execPath, [selfPath, ...daemonArgs], {
     detached: true,
     stdio: ['ignore', daemonOut, daemonOut],
     cwd: cfg.projectRoot,
@@ -197,7 +198,7 @@ function listDaemons(): DaemonEntry[] {
   } catch {
     return [];
   }
-  const out: DaemonEntry[] = [];
+  const result: DaemonEntry[] = [];
   for (const f of entries) {
     const m = /^claude-debug-(.+)\.pid$/.exec(f);
     if (!m) continue;
@@ -212,9 +213,9 @@ function listDaemons(): DaemonEntry[] {
     if (pid) {
       try { process.kill(pid, 0); alive = true; } catch { /* ignore */ }
     }
-    out.push({ slug, pid, alive, socket: socketPath(slug), log: logPath(slug) });
+    result.push({ slug, pid, alive, socket: socketPath(slug), log: logPath(slug) });
   }
-  return out;
+  return result;
 }
 
 async function cmdStop(args: ParsedArgs): Promise<void> {
@@ -243,7 +244,7 @@ async function cmdStop(args: ParsedArgs): Promise<void> {
 
 async function cmdStatus(): Promise<void> {
   const target = await findDaemonForCwd();
-  if (!target) err('No daemon running for current project. Run `debug start` first.');
+  if (!target) err('No daemon running for current project. Run `cdp start` first.');
   const r = await ipcRequest(target.sock, { cmd: 'status' });
   out(r);
 }
@@ -265,23 +266,16 @@ async function cmdLs(): Promise<void> {
 
 async function cmdTail(): Promise<void> {
   const target = await findDaemonForCwd();
-  if (!target) err('No daemon for current project. Run `debug start` first.');
+  if (!target) err('No daemon for current project. Run `cdp start` first.');
   out({ ok: true, log: logPath(target.slug), tailCommand: `tail -F ${logPath(target.slug)}` });
 }
 
-function cmdDoctor(): void {
-  const r = spawnSync(process.execPath, [join(SKILL_ROOT, 'dist', 'bin', 'doctor.js')], { encoding: 'utf8' });
-  process.stdout.write(r.stdout);
-  process.stderr.write(r.stderr);
-  process.exit(r.status ?? 0);
-}
-
 async function cmdBpSet(args: ParsedArgs & { target?: string }): Promise<void> {
-  if (!args.target) err('Usage: debug bp set <file>:<line> [--cond <expr>] [--log <expr>]');
+  if (!args.target) err('Usage: cdp bp set <file>:<line> [--cond <expr>] [--log <expr>]');
   const m = /^(.+):(\d+)$/.exec(args.target);
   if (!m) err('Target must be <file>:<line>');
   const target = await findDaemonForCwd();
-  if (!target) err('No daemon for current project. Run `debug start` first.');
+  if (!target) err('No daemon for current project. Run `cdp start` first.');
   const file = m[1]!;
   const line = Number(m[2]);
   const r = await ipcRequest(target.sock, { cmd: 'bp.set', file, line, cond: args.cond ?? null, logExpr: args.log ?? null });
@@ -290,21 +284,21 @@ async function cmdBpSet(args: ParsedArgs & { target?: string }): Promise<void> {
 
 async function cmdBpList(): Promise<void> {
   const target = await findDaemonForCwd();
-  if (!target) err('No daemon for current project. Run `debug start` first.');
+  if (!target) err('No daemon for current project. Run `cdp start` first.');
   const r = await ipcRequest(target.sock, { cmd: 'bp.list' });
   out(r);
 }
 
 async function cmdBpRm(args: ParsedArgs & { id?: string }): Promise<void> {
   const target = await findDaemonForCwd();
-  if (!target) err('No daemon for current project. Run `debug start` first.');
+  if (!target) err('No daemon for current project. Run `cdp start` first.');
   const r = await ipcRequest(target.sock, { cmd: 'bp.rm', id: args.id });
   out(r);
 }
 
 async function cmdWait(args: ParsedArgs): Promise<void> {
   const target = await findDaemonForCwd();
-  if (!target) err('No daemon for current project. Run `debug start` first.');
+  if (!target) err('No daemon for current project. Run `cdp start` first.');
   const timeout = Number(args.timeout ?? 30);
   const r = await ipcRequest(target.sock, { cmd: 'wait', timeout }, { timeoutMs: (timeout + 5) * 1000 });
   out(r);
@@ -312,7 +306,7 @@ async function cmdWait(args: ParsedArgs): Promise<void> {
 
 async function cmdEval(args: ParsedArgs & { expr?: string }): Promise<void> {
   const target = await findDaemonForCwd();
-  if (!target) err('No daemon for current project. Run `debug start` first.');
+  if (!target) err('No daemon for current project. Run `cdp start` first.');
   const r = await ipcRequest(target.sock, {
     cmd: 'eval',
     expr: args.expr,
@@ -324,28 +318,28 @@ async function cmdEval(args: ParsedArgs & { expr?: string }): Promise<void> {
 
 async function cmdLocals(args: ParsedArgs): Promise<void> {
   const target = await findDaemonForCwd();
-  if (!target) err('No daemon for current project. Run `debug start` first.');
+  if (!target) err('No daemon for current project. Run `cdp start` first.');
   const r = await ipcRequest(target.sock, { cmd: 'locals', depth: args.depth ?? 2 });
   out(r);
 }
 
 async function cmdStack(): Promise<void> {
   const target = await findDaemonForCwd();
-  if (!target) err('No daemon for current project. Run `debug start` first.');
+  if (!target) err('No daemon for current project. Run `cdp start` first.');
   const r = await ipcRequest(target.sock, { cmd: 'stack' });
   out(r);
 }
 
 async function cmdStep(direction: string): Promise<void> {
   const target = await findDaemonForCwd();
-  if (!target) err('No daemon for current project. Run `debug start` first.');
+  if (!target) err('No daemon for current project. Run `cdp start` first.');
   const r = await ipcRequest(target.sock, { cmd: 'step', direction });
   out(r);
 }
 
 async function cmdResume(): Promise<void> {
   const target = await findDaemonForCwd();
-  if (!target) err('No daemon for current project. Run `debug start` first.');
+  if (!target) err('No daemon for current project. Run `cdp start` first.');
   const r = await ipcRequest(target.sock, { cmd: 'resume' });
   out(r);
 }
@@ -369,35 +363,7 @@ function parseArgs(argv: string[]): { args: ParsedArgs; positional: string[] } {
   return { args, positional };
 }
 
-const argv = process.argv.slice(2);
-const command = argv[0];
-const { args, positional } = parseArgs(argv.slice(1));
-
-try {
-  switch (command) {
-    case 'start': await cmdStart(args); break;
-    case 'stop': await cmdStop(args); break;
-    case 'status': await cmdStatus(); break;
-    case 'ls': await cmdLs(); break;
-    case 'tail': await cmdTail(); break;
-    case 'doctor': cmdDoctor(); break;
-    case 'bp': {
-      const sub = positional[0];
-      if (sub === 'set') await cmdBpSet({ ...args, target: positional[1] });
-      else if (sub === 'list') await cmdBpList();
-      else if (sub === 'rm') await cmdBpRm({ ...args, id: positional[1] });
-      else err(`Unknown bp subcommand: ${sub}. Use: set | list | rm`);
-      break;
-    }
-    case 'wait': await cmdWait(args); break;
-    case 'eval': await cmdEval({ ...args, expr: positional.join(' ') }); break;
-    case 'locals': await cmdLocals(args); break;
-    case 'stack': await cmdStack(); break;
-    case 'step': await cmdStep(positional[0] ?? 'over'); break;
-    case 'resume': await cmdResume(); break;
-    case undefined:
-    case 'help':
-      console.log(`debug — CDP debugger CLI
+const HELP = `cdp — CDP debugger CLI
 
 Commands:
   start [--project DIR] [--reattach] [--idle-timeout SEC]
@@ -418,11 +384,42 @@ Commands:
   step [over|in|out]
   resume
 
-All commands return JSON.`);
-      break;
-    default:
-      err(`Unknown command: ${command}. Try 'debug help'.`);
+All commands return JSON.`;
+
+export async function runCli(argv: string[], selfPath: string, skillRoot: string): Promise<void> {
+  const command = argv[0];
+  const { args, positional } = parseArgs(argv.slice(1));
+
+  try {
+    switch (command) {
+      case 'start': await cmdStart(args, selfPath, skillRoot); break;
+      case 'stop': await cmdStop(args); break;
+      case 'status': await cmdStatus(); break;
+      case 'ls': await cmdLs(); break;
+      case 'tail': await cmdTail(); break;
+      case 'doctor': process.exit(runDoctor(skillRoot));
+      case 'bp': {
+        const sub = positional[0];
+        if (sub === 'set') await cmdBpSet({ ...args, target: positional[1] });
+        else if (sub === 'list') await cmdBpList();
+        else if (sub === 'rm') await cmdBpRm({ ...args, id: positional[1] });
+        else err(`Unknown bp subcommand: ${sub}. Use: set | list | rm`);
+        break;
+      }
+      case 'wait': await cmdWait(args); break;
+      case 'eval': await cmdEval({ ...args, expr: positional.join(' ') }); break;
+      case 'locals': await cmdLocals(args); break;
+      case 'stack': await cmdStack(); break;
+      case 'step': await cmdStep(positional[0] ?? 'over'); break;
+      case 'resume': await cmdResume(); break;
+      case undefined:
+      case 'help':
+        console.log(HELP);
+        break;
+      default:
+        err(`Unknown command: ${command}. Try 'cdp help'.`);
+    }
+  } catch (e) {
+    err((e as Error).message, { stack: (e as Error).stack });
   }
-} catch (e) {
-  err((e as Error).message, { stack: (e as Error).stack });
 }

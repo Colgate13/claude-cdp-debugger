@@ -10,6 +10,9 @@ jobs:
   quality-gate:
     name: quality-gate (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     strategy:
       fail-fast: false
       matrix:
@@ -28,14 +31,15 @@ jobs:
       - name: Run full quality gate
         run: npm run quality
 
-      - name: Verify shebang + executable bit on bins
+      - name: Verify shebang + executable bit on bundle and shim
         if: always()
         run: |
-          for f in dist/bin/debug.js dist/bin/debug-daemon.js dist/bin/doctor.js; do
-            test -f "$f" || { echo "Missing: $f"; exit 1; }
-            head -1 "$f" | grep -q '^#!/usr/bin/env node' || { echo "Missing shebang in $f"; exit 1; }
-            test -x "$f" || { echo "Not executable: $f"; exit 1; }
-          done
+          test -f dist/cli.js || { echo "Missing: dist/cli.js"; exit 1; }
+          head -1 dist/cli.js | grep -q '^#!/usr/bin/env node' || { echo "Missing shebang in dist/cli.js"; exit 1; }
+          test -x dist/cli.js || { echo "Not executable: dist/cli.js"; exit 1; }
+          test -f bin/cdp || { echo "Missing: bin/cdp"; exit 1; }
+          head -1 bin/cdp | grep -q '^#!/usr/bin/env bash' || { echo "Missing shebang in bin/cdp"; exit 1; }
+          test -x bin/cdp || { echo "Not executable: bin/cdp"; exit 1; }
 
       - name: Verify zero `any` and zero globalThis writes in src/
         if: always()
@@ -49,15 +53,18 @@ jobs:
             exit 1
           fi
 
-      - name: Verify skill installs end-to-end as Claude Code plugin
+      - name: Verify install.sh + plugin manifests + cdp shim end-to-end
         if: matrix.node == '22'
         run: |
-          mkdir -p $HOME/.claude/skills
           bash bin/install.sh
-          test -L $HOME/.claude/skills/debug || { echo "Symlink not created"; exit 1; }
-          test -f $HOME/.claude/skills/debug/SKILL.md || { echo "SKILL.md not reachable via symlink"; exit 1; }
-          test -f $HOME/.claude/skills/debug/dist/bin/debug.js || { echo "debug.js not reachable via symlink"; exit 1; }
-          head -5 $HOME/.claude/skills/debug/SKILL.md | grep -E '^(name|description|version):' >/dev/null
+          test -f dist/cli.js || { echo "install.sh did not produce dist/cli.js"; exit 1; }
+          test -f .claude-plugin/plugin.json || { echo "Missing .claude-plugin/plugin.json"; exit 1; }
+          test -f .claude-plugin/marketplace.json || { echo "Missing .claude-plugin/marketplace.json"; exit 1; }
+          test -f skills/cdp/SKILL.md || { echo "Missing skills/cdp/SKILL.md"; exit 1; }
+          head -5 skills/cdp/SKILL.md | grep -E '^(name|description|version):' >/dev/null
+          node -e "JSON.parse(require('fs').readFileSync('.claude-plugin/plugin.json','utf8'))"
+          node -e "JSON.parse(require('fs').readFileSync('.claude-plugin/marketplace.json','utf8'))"
+          ./bin/cdp doctor | node -e "let d=''; process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d); if(typeof j.ok!=='boolean')process.exit(1)})"
 
       - name: Upload quality-reports artifact
         if: always()
@@ -67,6 +74,19 @@ jobs:
           path: quality-reports/
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Build PR comment body
+        if: always() && github.event_name == 'pull_request' && hashFiles('quality-reports/summary.md') != ''
+        env:
+          PR_COMMENT_HEADING: 'Quality Gate — Node ${{ matrix.node }}'
+        run: node scripts/pr-comment.mjs > pr-comment.md
+
+      - name: Post quality-gate result to PR
+        if: always() && github.event_name == 'pull_request' && hashFiles('pr-comment.md') != ''
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: quality-gate-node-${{ matrix.node }}
+          path: pr-comment.md
 
       - name: Upload coverage to summary (Node 22 only)
         if: always() && matrix.node == '22' && hashFiles('quality-reports/summary.md') != ''
