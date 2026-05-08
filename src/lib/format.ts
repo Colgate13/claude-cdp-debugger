@@ -1,16 +1,7 @@
-/**
- * LLM-friendly formatting of CDP RemoteObject values.
- *
- * Strategy:
- * - Use V8's `preview` when present (it's already truncated by V8)
- * - Recursive expansion via Runtime.getProperties only when depth > 1
- * - Hard caps: depth (default 2), max props per object (50),
- *   string truncate (200 chars), array truncate (10 items),
- *   total payload bytes (8 * 1024)
- * - Detect circular refs via objectId set
- */
+import type { Protocol } from 'devtools-protocol';
+import type { FormatOpts, GetPropertiesFn } from './types.js';
 
-const DEFAULT_OPTS = {
+const DEFAULT_OPTS: Required<FormatOpts> = {
   depth: 2,
   maxProps: 50,
   maxArrayItems: 10,
@@ -18,21 +9,42 @@ const DEFAULT_OPTS = {
   totalCap: 8 * 1024,
 };
 
-export async function formatRemoteObject(remoteObject, getProperties, opts = {}) {
-  const o = { ...DEFAULT_OPTS, ...opts };
-  const ctx = { bytes: 0, cap: o.totalCap, seen: new Set() };
-  const result = await formatNode(remoteObject, getProperties, ctx, o, 0);
-  return result;
+interface Ctx {
+  bytes: number;
+  cap: number;
+  seen: Set<string>;
 }
 
-async function formatNode(remote, getProperties, ctx, o, depth) {
+/**
+ * Recursively expands a CDP `RemoteObject` into a JSON-serializable preview
+ * suitable for inclusion in an LLM context. Hard caps prevent runaway output:
+ * default depth=2, max-string=200, total-payload=8KB. Lazily fetches
+ * properties via {@link GetPropertiesFn} only as needed.
+ */
+export async function formatRemoteObject(
+  remoteObject: Protocol.Runtime.RemoteObject,
+  getProperties: GetPropertiesFn,
+  opts: FormatOpts = {},
+): Promise<unknown> {
+  const o = { ...DEFAULT_OPTS, ...opts };
+  const ctx: Ctx = { bytes: 0, cap: o.totalCap, seen: new Set() };
+  return formatNode(remoteObject, getProperties, ctx, o, 0);
+}
+
+async function formatNode(
+  remote: Protocol.Runtime.RemoteObject | undefined,
+  getProperties: GetPropertiesFn,
+  ctx: Ctx,
+  o: Required<FormatOpts>,
+  depth: number,
+): Promise<unknown> {
   if (remote == null) return null;
   if (ctx.bytes > ctx.cap) return { __truncated: true, reason: 'payload-cap' };
   switch (remote.type) {
     case 'undefined':
       return undefined;
     case 'string':
-      return truncateString(remote.value, o.maxString, ctx);
+      return truncateString(remote.value as string, o.maxString, ctx);
     case 'number':
     case 'boolean':
     case 'bigint':
@@ -42,13 +54,19 @@ async function formatNode(remote, getProperties, ctx, o, depth) {
     case 'function':
       return budget(`[Function: ${remote.description?.split('\n')[0]?.slice(0, 80) ?? '<fn>'}]`, ctx);
     case 'object':
-      return await formatObject(remote, getProperties, ctx, o, depth);
+      return formatObject(remote, getProperties, ctx, o, depth);
     default:
       return budget(remote.description ?? remote.type, ctx);
   }
 }
 
-async function formatObject(remote, getProperties, ctx, o, depth) {
+async function formatObject(
+  remote: Protocol.Runtime.RemoteObject,
+  getProperties: GetPropertiesFn,
+  ctx: Ctx,
+  o: Required<FormatOpts>,
+  depth: number,
+): Promise<unknown> {
   if (remote.subtype === 'null') return null;
   if (remote.subtype === 'date') return budget({ __date: remote.description }, ctx);
   if (remote.subtype === 'regexp') return budget({ __regexp: remote.description }, ctx);
@@ -59,8 +77,8 @@ async function formatObject(remote, getProperties, ctx, o, depth) {
   if (remote.subtype === 'promise') {
     const preview = remote.preview;
     if (preview) {
-      const status = preview.properties?.find((p) => p.name === '[[PromiseState]]')?.value ?? 'unknown';
-      const value = preview.properties?.find((p) => p.name === '[[PromiseResult]]')?.value;
+      const status = preview.properties.find((p) => p.name === '[[PromiseState]]')?.value ?? 'unknown';
+      const value = preview.properties.find((p) => p.name === '[[PromiseResult]]')?.value;
       return budget({ __promise: { state: status, value } }, ctx);
     }
     return budget({ __promise: 'unknown' }, ctx);
@@ -81,13 +99,13 @@ async function formatObject(remote, getProperties, ctx, o, depth) {
 
   ctx.seen.add(remote.objectId);
 
-  let props;
+  let props: Protocol.Runtime.PropertyDescriptor[];
   try {
     const r = await getProperties(remote.objectId);
     props = r.result ?? [];
   } catch (err) {
     ctx.seen.delete(remote.objectId);
-    return { __error: `getProperties failed: ${err.message}` };
+    return { __error: `getProperties failed: ${(err as Error).message}` };
   }
 
   // Heuristic: if object is a Mongoose-like document (has `_doc`), prefer `_doc`
@@ -99,7 +117,7 @@ async function formatObject(remote, getProperties, ctx, o, depth) {
   }
 
   if (remote.subtype === 'array') {
-    const arr = [];
+    const arr: unknown[] = [];
     let truncatedCount = 0;
     for (const p of props) {
       if (!/^\d+$/.test(p.name)) continue;
@@ -112,7 +130,7 @@ async function formatObject(remote, getProperties, ctx, o, depth) {
     return arr;
   }
 
-  const out = {};
+  const out: Record<string, unknown> = {};
   let count = 0;
   let truncated = 0;
   for (const p of props) {
@@ -127,48 +145,72 @@ async function formatObject(remote, getProperties, ctx, o, depth) {
     out[p.name] = await formatNode(p.value, getProperties, ctx, o, depth + 1);
     count++;
   }
-  if (truncated > 0) out['__more'] = `${truncated} more properties`;
+  if (truncated > 0) out.__more = `${truncated} more properties`;
   ctx.seen.delete(remote.objectId);
   return out;
 }
 
-function summarizePreview(preview, o, ctx) {
+function summarizePreview(
+  preview: Protocol.Runtime.ObjectPreview,
+  o: Required<FormatOpts>,
+  ctx: Ctx,
+): unknown {
   if (preview.subtype === 'array') {
-    const items = (preview.properties ?? []).slice(0, o.maxArrayItems).map((p) => p.value ?? p.subtype ?? p.type);
+    const items = (preview.properties).slice(0, o.maxArrayItems).map((p) => p.value ?? p.subtype ?? p.type);
     if (preview.overflow) items.push('...');
     return budget(items, ctx);
   }
-  const out = {};
-  for (const p of (preview.properties ?? []).slice(0, o.maxProps)) {
-    out[p.name] = truncateString(p.value ?? p.description ?? '?', o.maxString, ctx);
+  const out: Record<string, unknown> = {};
+  for (const p of preview.properties.slice(0, o.maxProps)) {
+    out[p.name] = truncateString(p.value ?? '?', o.maxString, ctx);
   }
-  if (preview.overflow) out['__more'] = '...';
+  if (preview.overflow) out.__more = '...';
   return out;
 }
 
-function truncateString(s, max, ctx) {
+function truncateString(s: unknown, max: number, ctx: Ctx): unknown {
   if (s == null) return s;
-  if (typeof s !== 'string') s = String(s);
-  if (s.length > max) {
-    const cut = s.slice(0, max);
-    return budget(`${cut}...[truncated +${s.length - max} chars]`, ctx);
+  let str: string;
+  if (typeof s === 'string') str = s;
+  else if (typeof s === 'number' || typeof s === 'boolean' || typeof s === 'bigint') str = String(s);
+  else str = JSON.stringify(s);
+  if (str.length > max) {
+    const cut = str.slice(0, max);
+    return budget(`${cut}...[truncated +${str.length - max} chars]`, ctx);
   }
-  return budget(s, ctx);
+  return budget(str, ctx);
 }
 
-function budget(value, ctx) {
+function budget<T>(value: T, ctx: Ctx): T {
   try {
     ctx.bytes += JSON.stringify(value).length;
   } catch { /* ignore */ }
   return value;
 }
 
-export function formatScopeChain(callFrame, getProperties, opts = {}) {
+/** Single entry in the LLM-friendly scope chain returned by {@link formatScopeChain}. */
+export interface ScopeChainEntry {
+  type: string;
+  name: string | null;
+  value: unknown;
+}
+
+/**
+ * Formats the scope chain of a paused CDP `CallFrame`. Filters to the scope
+ * types worth showing (local, closure, block, with, catch) and returns an
+ * array of {@link ScopeChainEntry} objects — typically short enough to drop
+ * directly into a chat response.
+ */
+export function formatScopeChain(
+  callFrame: Protocol.Debugger.CallFrame,
+  getProperties: GetPropertiesFn,
+  opts: FormatOpts = {},
+): Promise<ScopeChainEntry[]> {
   const o = { ...DEFAULT_OPTS, ...opts };
-  return Promise.all((callFrame.scopeChain ?? [])
+  return Promise.all((callFrame.scopeChain)
     .filter((s) => ['local', 'closure', 'block', 'with', 'catch'].includes(s.type))
     .map(async (scope) => {
-      const ctx = { bytes: 0, cap: o.totalCap, seen: new Set() };
+      const ctx: Ctx = { bytes: 0, cap: o.totalCap, seen: new Set() };
       const value = await formatObject(scope.object, getProperties, ctx, o, 0);
       return { type: scope.type, name: scope.name ?? null, value };
     }));

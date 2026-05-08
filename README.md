@@ -32,33 +32,32 @@ A [Claude Code](https://claude.com/claude-code) skill that lets the agent **live
 
 ### Direct install from this repo
 
-For now, clone and run the installer. It copies (or symlinks) the skill into `~/.claude/skills/debug/`:
+For now, clone and run the installer. It installs deps, builds TypeScript, and symlinks the skill into `~/.claude/skills/debug/`:
 
 ```bash
 git clone https://github.com/Colgate13/claude-cdp-debugger.git ~/projects/claude-cdp-debugger
 cd ~/projects/claude-cdp-debugger
-npm install --omit=dev
-bash bin/install.sh   # symlinks ~/.claude/skills/debug -> this clone (good for development)
+bash bin/install.sh   # runs `npm install && npm run build`, then symlinks ~/.claude/skills/debug -> this clone
 ```
 
 After install, Claude Code picks up the skill automatically. Trigger it with `/debug` or natural language ("debug X", "set a breakpoint at...", "investigate why...").
 
 ### Standalone CLI usage (without Claude Code)
 
-The bins also work outside of Claude Code. After cloning + `npm install`:
+The bins also work outside of Claude Code. After cloning + `npm install && npm run build`:
 
 ```bash
-node ~/projects/claude-cdp-debugger/bin/debug.mjs doctor
-node ~/projects/claude-cdp-debugger/bin/debug.mjs start
-node ~/projects/claude-cdp-debugger/bin/debug.mjs bp set src/user.controller.ts:42
+node ~/projects/claude-cdp-debugger/dist/bin/debug.js doctor
+node ~/projects/claude-cdp-debugger/dist/bin/debug.js start
+node ~/projects/claude-cdp-debugger/dist/bin/debug.js bp set src/user.controller.ts:42
 # ... trigger your code path ...
-node ~/projects/claude-cdp-debugger/bin/debug.mjs wait
-node ~/projects/claude-cdp-debugger/bin/debug.mjs eval "dto"
-node ~/projects/claude-cdp-debugger/bin/debug.mjs resume
-node ~/projects/claude-cdp-debugger/bin/debug.mjs stop
+node ~/projects/claude-cdp-debugger/dist/bin/debug.js wait
+node ~/projects/claude-cdp-debugger/dist/bin/debug.js eval "dto"
+node ~/projects/claude-cdp-debugger/dist/bin/debug.js resume
+node ~/projects/claude-cdp-debugger/dist/bin/debug.js stop
 ```
 
-(Add `~/projects/claude-cdp-debugger/bin` to your `PATH` to drop the `node ... bin/debug.mjs` prefix.)
+(Add `~/projects/claude-cdp-debugger/dist/bin` to your `PATH` to drop the `node ... debug.js` prefix.)
 
 ## CLI reference
 
@@ -104,15 +103,15 @@ All commands return JSON to stdout. Daemon events are written line-by-line to `/
 └──────┬──────────────────────────┬───────┘
        │ stateless CLI commands   │ tail -F event log
        ▼                          ▼
-   bin/debug.mjs ──── Unix socket ──→ bin/debug-daemon.mjs (per project, long-lived)
+   dist/bin/debug.js ─── Unix socket ──→ dist/bin/debug-daemon.js (per project, long-lived)
                                            │
                                            ▼ Chrome DevTools Protocol (WebSocket)
                                       Node Inspector (your service, in container or locally)
 ```
 
-- **Daemon** (`bin/debug-daemon.mjs`) holds the CDP WebSocket connection, manages breakpoints, serializes commands through a small FSM (`idle | running | paused | stepping`), and writes structured events to a log file with `fsync`-on-write.
-- **CLI** (`bin/debug.mjs`) is stateless — each invocation opens a Unix socket to the daemon, sends one command, prints the JSON response, exits.
-- **Library code** (`lib/`) is split into small modules: `detect`, `cdp`, `ipc`, `events`, `state`, `format`, `sourcemap`, `handlers-bp`, `handlers-inspect`.
+- **Daemon** (`src/bin/debug-daemon.ts` → `dist/bin/debug-daemon.js`) holds the CDP WebSocket connection, manages breakpoints, serializes commands through a small FSM (`idle | running | paused | stepping`), and writes structured events to a log file with `fsync`-on-write.
+- **CLI** (`src/bin/debug.ts` → `dist/bin/debug.js`) is stateless — each invocation opens a Unix socket to the daemon, sends one command, prints the JSON response, exits.
+- **Library code** (`src/lib/`) is split into small TypeScript modules: `types`, `daemon-context`, `detect`, `cdp`, `ipc`, `events`, `state`, `format`, `sourcemap`, `handlers-bp`, `handlers-inspect`.
 
 ## Files per session
 
@@ -162,12 +161,51 @@ Need more? `debug eval foo.bar.specific.path --depth 4` to dive into a specific 
 
 ## Contributing
 
-PRs welcome. The code is small (~2k lines, no build step) and explicitly factored to make adding handlers easy:
+PRs welcome. The code is small (~2k lines of TypeScript, builds with `tsc`) and explicitly factored to make adding handlers easy:
 
-- New CLI command? Add a `case` in `bin/debug.mjs` and a handler in `lib/handlers-*.mjs`.
-- New domain formatter (e.g., Prisma model)? Extend `lib/format.mjs`'s `formatObject` switch on `subtype`.
+- New CLI command? Add a `case` in `src/bin/debug.ts` and a handler in `src/lib/handlers-*.ts`.
+- New domain formatter (e.g., Prisma model)? Extend `src/lib/format.ts`'s `formatObject` switch on `subtype`.
 
-Run `node bin/doctor.mjs` after changes to validate the environment.
+Local dev loop:
+
+```bash
+npm install
+npm run typecheck     # tsc --noEmit
+npm run lint          # eslint
+npm run build         # emit dist/
+npm test              # unit tests (node:test via tsx)
+npm run test:integration  # CDP end-to-end tests (spawns a real Node target)
+node dist/bin/doctor.js
+
+# One-shot full quality gate (lint + typecheck + tests + coverage +
+# duplication + dead-code + docs + audit + bundle size).
+# Writes artifacts to quality-reports/. Exits non-zero if any threshold fails.
+npm run quality
+```
+
+### Quality gate
+
+Every PR runs `npm run quality` on Node 22 and 24 in CI. The gate enforces:
+
+| Check | Tool | Threshold |
+|---|---|---|
+| Lint | ESLint v9 (type-checked) | 0 errors (warnings allowed) |
+| Typecheck (src + test) | tsc strict + noUncheckedIndexedAccess | 0 errors |
+| Unit tests | node:test | all passing |
+| Integration tests | node:test + CDP fixture | all passing |
+| Coverage | c8 | lines ≥60%, branches ≥50%, fns ≥65% |
+| Duplication | jscpd | <5% duplicated tokens |
+| Dead code | knip | 0 unused exports |
+| Docs | typedoc | builds without errors |
+| Doc coverage | custom | ≥50% of `src/lib/` exports have JSDoc |
+| Security audit | `npm audit` | 0 high/critical |
+| Bundle size | custom | dist .js ≤ 100KB |
+
+CI uploads `quality-reports/` as a workflow artifact (per Node version) for inspection.
+
+Each check is also a standalone npm script (e.g., `npm run coverage`,
+`npm run duplication`, `npm run deadcode`, `npm run docs`,
+`npm run docs:coverage`, `npm run audit`, `npm run bundle:size`).
 
 ## License
 

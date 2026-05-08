@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "test-integration/**/*.ts"],
+  "exclude": ["dist", "node_modules", "test-integration/fixture-template"]
+}

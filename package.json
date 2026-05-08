@@ -1,6 +1,6 @@
 {
   "name": "claude-cdp-debugger",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A Claude Code skill that lets the agent live-debug any Node.js service via Chrome DevTools Protocol — discovers .vscode/launch.json automatically, sets breakpoints, captures pauses, inspects state, and reports back conversationally.",
   "keywords": [
     "claude-code",
@@ -20,23 +20,54 @@
     "node": ">=22"
   },
   "bin": {
-    "debug": "bin/debug.mjs",
-    "debug-daemon": "bin/debug-daemon.mjs",
-    "debug-doctor": "bin/doctor.mjs"
+    "debug": "dist/bin/debug.js",
+    "debug-daemon": "dist/bin/debug-daemon.js",
+    "debug-doctor": "dist/bin/doctor.js"
   },
   "files": [
     "SKILL.md",
     "README.md",
     "LICENSE",
-    "bin",
-    "lib"
+    "dist",
+    "bin/install.sh"
   ],
   "scripts": {
-    "doctor": "node bin/doctor.mjs",
-    "install-skill": "bash bin/install.sh"
+    "build": "tsc && node scripts/post-build.mjs",
+    "typecheck": "tsc --noEmit",
+    "typecheck:test": "tsc -p tsconfig.test.json",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "node --test --import tsx 'test/**/*.test.ts'",
+    "test:unit": "node --test --import tsx 'test/**/*.test.ts'",
+    "test:integration": "npm run build && node --test --test-timeout=60000 --import tsx 'test-integration/**/*.test.ts'",
+    "test:all": "npm run test:unit && npm run test:integration",
+    "coverage": "c8 npm run test:unit",
+    "duplication": "jscpd",
+    "deadcode": "knip",
+    "docs": "typedoc",
+    "docs:coverage": "node scripts/doc-coverage.mjs",
+    "audit": "npm audit --omit=dev --audit-level=high",
+    "bundle:size": "node scripts/bundle-size.mjs",
+    "quality": "node scripts/quality-gate.mjs",
+    "doctor": "node dist/bin/doctor.js",
+    "install-skill": "npm install && npm run build && bash bin/install.sh",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "chrome-remote-interface": "0.33.3",
     "source-map": "0.7.4"
+  },
+  "devDependencies": {
+    "@types/chrome-remote-interface": "^0.33.0",
+    "@types/node": "^22.10.5",
+    "c8": "^11.0.0",
+    "devtools-protocol": "0.0.1173815",
+    "eslint": "^9.18.0",
+    "jscpd": "^4.0.9",
+    "knip": "^6.12.1",
+    "tsx": "^4.19.2",
+    "typedoc": "^0.28.19",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.20.0"
   }
 }

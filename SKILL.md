@@ -27,16 +27,16 @@ Triggers that should NOT route here (use other tools):
 ## High-level workflow
 
 1. **Pick breakpoints.** Read the code around the user's target. Choose 1–4 breakpoints at the most informative spots: function entry, before a critical branch, after an external call, near the suspicious return. Keep it tight — too many BPs = noise.
-2. **Verify environment.** Run `<skill-root>/bin/doctor.mjs` once per session if not run recently. It validates Node, deps, and `socat`/`curl --unix-socket`.
-3. **Start daemon.** From the project's CWD, run `<skill-root>/bin/debug.mjs start` with `run_in_background: true`. Use the Monitor tool to tail the daemon log.
+2. **Verify environment.** Run `<skill-root>/dist/bin/doctor.js` once per session if not run recently. It validates Node, deps, and `socat`/`curl --unix-socket`.
+3. **Start daemon.** From the project's CWD, run `<skill-root>/dist/bin/debug.js start` with `run_in_background: true`. Use the Monitor tool to tail the daemon log.
 4. **Wait for `connected` event** in the log. If the log says the container/inspector port is unreachable, the message includes the exact recovery command (e.g., `docker start <container>`).
-5. **Set breakpoints.** `bin/debug.mjs bp set <file>:<line>` for each chosen point. Accept TS or JS paths — daemon handles source-map translation for compiled projects.
+5. **Set breakpoints.** `<skill-root>/dist/bin/debug.js bp set <file>:<line>` for each chosen point. Accept TS or JS paths — daemon handles source-map translation for compiled projects.
 6. **Tell the user to act.** Short, specific: *"Ready. Trigger the POST /api/users and I'll watch."*
 7. **Watch for `paused` events** via Monitor. Each event carries a frame summary + locals preview already fitted to the LLM budget (depth 2, ~8KB cap).
-8. **Inspect.** Use `bin/debug.mjs eval <expr>` (or `locals`, `stack`) to dig into specific values. Eval works in both paused (call-frame) and running (Runtime.evaluate) states.
+8. **Inspect.** Use `<skill-root>/dist/bin/debug.js eval <expr>` (or `locals`, `stack`) to dig into specific values. Eval works in both paused (call-frame) and running (Runtime.evaluate) states.
 9. **Report findings** in the conversation in plain language — what's surprising, what matches expectation, what's the next hypothesis.
 10. **Move forward** — `step over/in/out`, `resume`, or set new BPs based on what you saw.
-11. **When understood, stop.** `bin/debug.mjs stop` clears BPs, disconnects, kills the daemon. Always stop before ending the conversation topic.
+11. **When understood, stop.** `<skill-root>/dist/bin/debug.js stop` clears BPs, disconnects, kills the daemon. Always stop before ending the conversation topic.
 
 > The path `<skill-root>` resolves to wherever this skill is installed — typically `~/.claude/skills/debug/` (when installed as a Claude Code skill) or a clone of the repository.
 
@@ -125,9 +125,9 @@ If `node_modules/chrome-remote-interface/package.json` is missing under the skil
 
 ## Architecture quick ref
 
-- **Daemon** (`bin/debug-daemon.mjs`) — long-running background process per project; connects CDP, listens on Unix socket
-- **CLI** (`bin/debug.mjs`) — invoked from Bash; talks to daemon via socket; auto-detects project via CWD walking up
-- **Handlers** (`lib/handlers-bp.mjs`, `lib/handlers-inspect.mjs`) — extend `D.handlers` registry with BP and inspect commands
+- **Daemon** (`<skill-root>/dist/bin/debug-daemon.js`) — long-running background process per project; connects CDP, listens on Unix socket
+- **CLI** (`<skill-root>/dist/bin/debug.js`) — invoked from Bash; talks to daemon via socket; auto-detects project via CWD walking up
+- **Handlers** (`src/lib/handlers-bp.ts`, `src/lib/handlers-inspect.ts`) — register BP and inspect commands on the `DaemonContext` instance
 - **Files per session**:
   - `/tmp/claude-debug-<slug>.sock` — IPC
   - `/tmp/claude-debug-<slug>.log` — structured event stream

@@ -1,7 +1,10 @@
 node_modules/
-package-lock.json
 *.log
 .DS_Store
 .idea/
 .vscode/
 /tmp/
+dist/
+coverage/
+*.tsbuildinfo
+quality-reports/
