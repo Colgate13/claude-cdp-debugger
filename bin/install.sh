@@ -1,31 +1,27 @@
 #!/usr/bin/env bash
-# Installs claude-cdp-debugger as a Claude Code skill at ~/.claude/skills/debug
-# by symlinking this clone, so editing the repo updates the skill instantly.
+# Local setup for claude-cdp-debugger.
+# Installs deps, builds the bundled CLI, then prints the two Claude Code
+# commands to register and install the plugin.
 
 set -euo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 REPO_ROOT="$( dirname "$SCRIPT_DIR" )"
-TARGET="${HOME}/.claude/skills/debug"
 
-mkdir -p "${HOME}/.claude/skills"
+cd "$REPO_ROOT"
 
-if [[ -e "$TARGET" || -L "$TARGET" ]]; then
-  echo "Existing entry at $TARGET — refusing to overwrite."
-  echo "If you want to replace it, remove it first:"
-  echo "  rm -rf $TARGET"
-  exit 1
-fi
+echo "→ installing dependencies (npm ci)..."
+npm ci --loglevel=error
 
-# Install dependencies (including devDeps so we can build) and compile TypeScript → dist/
-echo "Installing dependencies and building..."
-npm install --prefix "$REPO_ROOT" --loglevel=error
-npm run --prefix "$REPO_ROOT" build
-
-ln -s "$REPO_ROOT" "$TARGET"
-echo "Linked $TARGET -> $REPO_ROOT"
-
-node "$REPO_ROOT/dist/bin/doctor.js" || true
+echo "→ building bundle..."
+npm run build
 
 echo ""
-echo "Skill installed. Trigger it in Claude Code with /debug or natural language ('debug X')."
+echo "✓ Setup complete. dist/cli.js is ready."
+echo ""
+echo "Next: register the plugin in Claude Code by running these two commands:"
+echo ""
+echo "  /plugin marketplace add $REPO_ROOT"
+echo "  /plugin install claude-cdp-debugger@claude-cdp-debugger"
+echo ""
+echo "Then trigger the skill with /cdp or natural language ('debug X')."

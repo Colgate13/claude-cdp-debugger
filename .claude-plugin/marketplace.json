@@ -1,0 +1,17 @@
+{
+  "name": "claude-cdp-debugger",
+  "owner": {
+    "name": "Gabriel Barros F. Sa",
+    "url": "https://github.com/Colgate13"
+  },
+  "plugins": [
+    {
+      "name": "claude-cdp-debugger",
+      "source": "./",
+      "description": "Live-debug Node.js services via Chrome DevTools Protocol.",
+      "version": "0.2.0",
+      "category": "debugging",
+      "tags": ["debugging", "nodejs", "cdp", "chrome-devtools", "skill"]
+    }
+  ]
+}

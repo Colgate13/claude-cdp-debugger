@@ -1,0 +1,11 @@
+{
+  "name": "claude-cdp-debugger",
+  "description": "Live-debug Node.js services via Chrome DevTools Protocol — Claude attaches, sets breakpoints, inspects runtime state, and reports findings conversationally.",
+  "version": "0.2.0",
+  "author": {
+    "name": "Gabriel Barros F. Sa",
+    "email": "gabreilbarros13@gmail.com"
+  },
+  "homepage": "https://github.com/Colgate13/claude-cdp-debugger",
+  "license": "MIT"
+}
