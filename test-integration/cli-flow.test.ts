@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync, spawn, type ChildProcess } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,12 +61,24 @@ before(async () => {
   projectDir = mkdtempSync(join(tmpdir(), 'cdp-int-'));
   cpSync(FIXTURE_TEMPLATE, projectDir, { recursive: true });
 
-  // Patch launch.json port to match.
-  const launch = join(projectDir, '.vscode', 'launch.json');
-  const fs = await import('node:fs');
-  const json = JSON.parse(fs.readFileSync(launch, 'utf8')) as { configurations: { port: number }[] };
-  json.configurations[0]!.port = PORT;
-  fs.writeFileSync(launch, JSON.stringify(json, null, 2));
+  // Generate .vscode/launch.json dynamically — `.vscode/` is gitignored, so we
+  // can't ship it in the fixture-template directory. Generating here also lets
+  // us bind to the runtime PORT without sed-patching a file.
+  mkdirSync(join(projectDir, '.vscode'), { recursive: true });
+  writeFileSync(
+    join(projectDir, '.vscode', 'launch.json'),
+    JSON.stringify({
+      version: '0.2.0',
+      configurations: [{
+        name: 'Attach to Node',
+        type: 'node',
+        request: 'attach',
+        port: PORT,
+        localRoot: '${workspaceFolder}',
+        remoteRoot: '${workspaceFolder}',
+      }],
+    }, null, 2),
+  );
 
   // Spawn target process.
   target = spawn(process.execPath, [`--inspect=${PORT}`, 'target.mjs'], {
