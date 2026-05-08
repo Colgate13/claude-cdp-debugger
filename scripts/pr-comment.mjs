@@ -17,7 +17,11 @@ const summaryJson = JSON.parse(readFileSync(join(REPORTS, 'summary.json'), 'utf8
 const MAX_LOG_LINES = 80;
 const MAX_LOG_CHARS = 6000;
 
-let out = summary.replace(/^# Quality Gate Report/, `# ${heading}`);
+let out = summary
+  .replace(/^# Quality Gate Report/, `# ${heading}`)
+  // Drop the "## Artifacts" file-listing section — those local paths aren't
+  // clickable from a PR comment; the workflow artifact upload covers it.
+  .replace(/\n## Artifacts\n[\s\S]*?(?=\n## |\n*$)/, '');
 
 const failed = (summaryJson.steps ?? []).filter((s) => !s.ok);
 if (failed.length > 0) {
