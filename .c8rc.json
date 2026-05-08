@@ -5,6 +5,9 @@
   ],
   "exclude": [
     "src/bin/**",
+    "src/lib/cli-main.ts",
+    "src/lib/daemon-main.ts",
+    "src/lib/doctor-main.ts",
     "**/*.d.ts",
     "**/types.ts"
   ],
