@@ -10,6 +10,9 @@ jobs:
   quality-gate:
     name: quality-gate (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     strategy:
       fail-fast: false
       matrix:
@@ -71,6 +74,19 @@ jobs:
           path: quality-reports/
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Build PR comment body
+        if: always() && github.event_name == 'pull_request' && hashFiles('quality-reports/summary.md') != ''
+        env:
+          PR_COMMENT_HEADING: 'Quality Gate — Node ${{ matrix.node }}'
+        run: node scripts/pr-comment.mjs > pr-comment.md
+
+      - name: Post quality-gate result to PR
+        if: always() && github.event_name == 'pull_request' && hashFiles('pr-comment.md') != ''
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: quality-gate-node-${{ matrix.node }}
+          path: pr-comment.md
 
       - name: Upload coverage to summary (Node 22 only)
         if: always() && matrix.node == '22' && hashFiles('quality-reports/summary.md') != ''
