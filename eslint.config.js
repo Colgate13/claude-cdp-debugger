@@ -7,8 +7,10 @@ export default tseslint.config(
       'dist/**',
       'node_modules/**',
       'coverage/**',
+      'quality-reports/**',
       'scripts/*.mjs',
       'eslint.config.js',
+      'test-integration/fixture-template/**',
     ],
   },
   ...tseslint.configs.recommendedTypeChecked,
@@ -32,7 +34,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['test/**/*.ts'],
+    files: ['test/**/*.ts', 'test-integration/**/*.ts'],
     rules: {
       '@typescript-eslint/no-non-null-assertion': 'off',
       '@typescript-eslint/no-floating-promises': 'off',

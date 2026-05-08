@@ -3,22 +3,27 @@ import type { Server, Socket } from 'node:net';
 import { unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 
+/** Returns the Unix socket path for a daemon identified by `slug`. */
 export function socketPath(slug: string): string {
   return `/tmp/claude-debug-${slug}.sock`;
 }
 
+/** Returns the PID file path for a daemon identified by `slug`. */
 export function pidPath(slug: string): string {
   return `/tmp/claude-debug-${slug}.pid`;
 }
 
+/** Returns the structured event log path for a daemon identified by `slug`. */
 export function logPath(slug: string): string {
   return `/tmp/claude-debug-${slug}.log`;
 }
 
+/** Returns the persisted-breakpoints JSON path for a daemon identified by `slug`. */
 export function bpsPath(slug: string): string {
   return `/tmp/claude-debug-${slug}.bps.json`;
 }
 
+/** Removes a socket file if it exists; ignores `ENOENT`. */
 export async function tryRemoveSocket(path: string): Promise<void> {
   try {
     await unlink(path);
@@ -27,6 +32,11 @@ export async function tryRemoveSocket(path: string): Promise<void> {
   }
 }
 
+/**
+ * Probes whether a Unix socket has an accepting listener. Returns `false` if
+ * the socket file is missing, the connect errors, or it doesn't accept within
+ * 500ms.
+ */
 export async function isSocketAlive(path: string): Promise<boolean> {
   if (!existsSync(path)) return false;
   return new Promise((resolve) => {
@@ -44,8 +54,14 @@ export async function isSocketAlive(path: string): Promise<boolean> {
   });
 }
 
+/** Async function that maps an IPC request to a response. */
 export type IpcHandler<Req, Res> = (req: Req) => Promise<Res>;
 
+/**
+ * NDJSON-over-Unix-socket server. Each accepted connection reads
+ * newline-delimited JSON requests, hands each one to `handler`, and writes a
+ * single JSON response per request followed by a newline.
+ */
 export class IpcServer<Req, Res> {
   private server: Server | null = null;
   private connections = new Set<Socket>();
@@ -107,6 +123,10 @@ export class IpcServer<Req, Res> {
   }
 }
 
+/**
+ * Stateless one-shot client: opens a Unix socket, sends a single JSON request,
+ * reads one JSON response, closes. Throws on connection error or timeout.
+ */
 export async function ipcRequest<Res = unknown>(
   path: string,
   request: unknown,

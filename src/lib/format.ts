@@ -15,6 +15,12 @@ interface Ctx {
   seen: Set<string>;
 }
 
+/**
+ * Recursively expands a CDP `RemoteObject` into a JSON-serializable preview
+ * suitable for inclusion in an LLM context. Hard caps prevent runaway output:
+ * default depth=2, max-string=200, total-payload=8KB. Lazily fetches
+ * properties via {@link GetPropertiesFn} only as needed.
+ */
 export async function formatRemoteObject(
   remoteObject: Protocol.Runtime.RemoteObject,
   getProperties: GetPropertiesFn,
@@ -182,12 +188,19 @@ function budget<T>(value: T, ctx: Ctx): T {
   return value;
 }
 
+/** Single entry in the LLM-friendly scope chain returned by {@link formatScopeChain}. */
 export interface ScopeChainEntry {
   type: string;
   name: string | null;
   value: unknown;
 }
 
+/**
+ * Formats the scope chain of a paused CDP `CallFrame`. Filters to the scope
+ * types worth showing (local, closure, block, with, catch) and returns an
+ * array of {@link ScopeChainEntry} objects — typically short enough to drop
+ * directly into a chat response.
+ */
 export function formatScopeChain(
   callFrame: Protocol.Debugger.CallFrame,
   getProperties: GetPropertiesFn,

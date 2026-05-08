@@ -135,6 +135,29 @@ test('detect: runtime=ts-node when start script uses tsx/nest start', async () =
   }
 });
 
+test('detect: substitutes ${workspaceFolder} in both localRoot and remoteRoot', async () => {
+  const tmp = freshTmp();
+  try {
+    mkdirSync(join(tmp, '.vscode'));
+    writeFileSync(
+      join(tmp, '.vscode', 'launch.json'),
+      JSON.stringify({
+        configurations: [{
+          request: 'attach',
+          port: 9229,
+          localRoot: '${workspaceFolder}',
+          remoteRoot: '${workspaceFolder}',
+        }],
+      }),
+    );
+    const cfg = await detect(tmp);
+    assert.equal(cfg.localRoot, tmp);
+    assert.equal(cfg.remoteRoot, tmp);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test('detect: throws helpful error when no launch.json', async () => {
   const tmp = freshTmp();
   try {

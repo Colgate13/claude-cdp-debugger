@@ -2,6 +2,11 @@ import { formatRemoteObject, formatScopeChain } from './format.js';
 import type { DaemonContext } from './daemon-context.js';
 import type { GetPropertiesFn, IpcResponse } from './types.js';
 
+/**
+ * Registers the inspection IPC handlers (`eval`, `locals`, `stack`, `step`,
+ * `resume`) on the given {@link DaemonContext}. Eval prefers `evaluateOnCallFrame`
+ * when a frame is paused and falls back to `Runtime.evaluate` otherwise.
+ */
 export function registerInspectHandlers(ctx: DaemonContext): void {
   const session = ctx.session;
 

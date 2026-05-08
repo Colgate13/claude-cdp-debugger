@@ -1,9 +1,16 @@
 import CDP from 'chrome-remote-interface';
 import type { Protocol } from 'devtools-protocol';
 
+/** Re-export of {@link CDP.Target} for ergonomic imports from this module. */
 export type CdpTarget = CDP.Target;
+/** Re-export of {@link CDP.Client} for ergonomic imports from this module. */
 export type CdpClient = CDP.Client;
 
+/**
+ * Polls the inspector's `/json/list` HTTP endpoint until a debuggable target
+ * appears, then returns it. Prefers `type === 'node'` targets when multiple
+ * are available. Throws after `timeoutMs` if nothing usable is found.
+ */
 export async function discoverTarget(
   host: string,
   port: number,
@@ -31,11 +38,16 @@ export async function discoverTarget(
   );
 }
 
+/** CDP `Debugger.scriptParsed` callback. */
 export type ScriptParsedHandler = (script: Protocol.Debugger.ScriptParsedEvent) => void;
+/** CDP `Debugger.paused` callback. */
 export type PausedHandler = (evt: Protocol.Debugger.PausedEvent) => void;
+/** CDP `Debugger.resumed` callback. */
 export type ResumedHandler = () => void;
+/** Disconnection notification, fired with a reason string. */
 export type DetachedHandler = (reason: string) => void;
 
+/** Subset of CDP `Debugger.setBreakpointByUrl` params used by this skill. */
 export interface SetBreakpointParams {
   urlRegex?: string;
   url?: string;
@@ -44,6 +56,12 @@ export interface SetBreakpointParams {
   condition?: string | undefined;
 }
 
+/**
+ * Thin wrapper around `chrome-remote-interface` with the surface this skill
+ * uses: connect, set/remove breakpoints, evaluate (call-frame and runtime),
+ * step/resume, and read object properties. Caches `scriptParsed` results so
+ * `summarizeFrame` can map call frames back to source paths cheaply.
+ */
 export class CdpSession {
   client: CdpClient | null = null;
   scripts = new Map<string, Protocol.Debugger.ScriptParsedEvent>();

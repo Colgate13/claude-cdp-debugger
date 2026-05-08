@@ -1,5 +1,9 @@
 import type { FsmState, IpcRequest } from './types.js';
 
+/**
+ * String-literal union of every IPC command. Derived from {@link IpcRequest}
+ * so adding a new command immediately enforces a state-rule entry below.
+ */
 export type CommandName = IpcRequest['cmd'];
 
 const COMMAND_RULES: Record<CommandName, FsmState[] | 'any'> = {
@@ -17,6 +21,11 @@ const COMMAND_RULES: Record<CommandName, FsmState[] | 'any'> = {
   resume: ['paused'],
 };
 
+/**
+ * Validates whether a given IPC `command` is permitted while the daemon is in
+ * `state`. Returns `{allowed: true}` or `{allowed: false, reason}` so callers
+ * can echo the explanation to the user.
+ */
 export function commandAllowed(command: string, state: FsmState): { allowed: boolean; reason?: string } {
   const rule = COMMAND_RULES[command as CommandName];
   if (rule === undefined) return { allowed: false, reason: `Unknown command: ${command}` };
@@ -31,6 +40,11 @@ interface QueueEntry<T> {
   reject: (err: unknown) => void;
 }
 
+/**
+ * Serializes async work items so CDP-mutating operations don't interleave.
+ * Each `run()` is processed in submission order; rejections of one task do
+ * not affect others.
+ */
 export class CommandQueue {
   private queue: QueueEntry<unknown>[] = [];
   private busy = false;

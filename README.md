@@ -170,14 +170,42 @@ Local dev loop:
 
 ```bash
 npm install
-npm run typecheck    # tsc --noEmit
-npm run lint         # eslint
-npm run build        # emit dist/
-npm test             # node:test via tsx
+npm run typecheck     # tsc --noEmit
+npm run lint          # eslint
+npm run build         # emit dist/
+npm test              # unit tests (node:test via tsx)
+npm run test:integration  # CDP end-to-end tests (spawns a real Node target)
 node dist/bin/doctor.js
+
+# One-shot full quality gate (lint + typecheck + tests + coverage +
+# duplication + dead-code + docs + audit + bundle size).
+# Writes artifacts to quality-reports/. Exits non-zero if any threshold fails.
+npm run quality
 ```
 
-CI runs lint + typecheck + build + test on every push (Node 22 and 24).
+### Quality gate
+
+Every PR runs `npm run quality` on Node 22 and 24 in CI. The gate enforces:
+
+| Check | Tool | Threshold |
+|---|---|---|
+| Lint | ESLint v9 (type-checked) | 0 errors (warnings allowed) |
+| Typecheck (src + test) | tsc strict + noUncheckedIndexedAccess | 0 errors |
+| Unit tests | node:test | all passing |
+| Integration tests | node:test + CDP fixture | all passing |
+| Coverage | c8 | lines ≥60%, branches ≥50%, fns ≥65% |
+| Duplication | jscpd | <5% duplicated tokens |
+| Dead code | knip | 0 unused exports |
+| Docs | typedoc | builds without errors |
+| Doc coverage | custom | ≥50% of `src/lib/` exports have JSDoc |
+| Security audit | `npm audit` | 0 high/critical |
+| Bundle size | custom | dist .js ≤ 100KB |
+
+CI uploads `quality-reports/` as a workflow artifact (per Node version) for inspection.
+
+Each check is also a standalone npm script (e.g., `npm run coverage`,
+`npm run duplication`, `npm run deadcode`, `npm run docs`,
+`npm run docs:coverage`, `npm run audit`, `npm run bundle:size`).
 
 ## License
 

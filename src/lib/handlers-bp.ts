@@ -12,6 +12,11 @@ interface TranslatedLocation {
   sourcemap: SourceMapInfo | 'parallel-path' | null;
 }
 
+/**
+ * Registers the breakpoint-related IPC handlers (`bp.set`, `bp.list`, `bp.rm`,
+ * `wait`) on the given {@link DaemonContext}. Encapsulates source-map
+ * translation + parallel-path fallback for compiled TS projects.
+ */
 export function registerBpHandlers(ctx: DaemonContext): void {
   const cfg = ctx.cfg;
   const session = ctx.session;

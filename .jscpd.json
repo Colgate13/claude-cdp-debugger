@@ -1,0 +1,16 @@
+{
+  "threshold": 5,
+  "reporters": ["console", "json", "html"],
+  "output": "./quality-reports/duplication",
+  "ignore": [
+    "**/*.test.ts",
+    "**/dist/**",
+    "**/node_modules/**",
+    "**/test-integration/fixture-template/**"
+  ],
+  "format": ["typescript"],
+  "minLines": 5,
+  "minTokens": 50,
+  "absolute": true,
+  "gitignore": true
+}

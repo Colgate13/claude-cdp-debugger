@@ -7,8 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  validate:
-    name: validate (Node ${{ matrix.node }})
+  quality-gate:
+    name: quality-gate (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -25,22 +25,11 @@ jobs:
       - name: Install
         run: npm install
 
-      - name: Lint
-        run: npm run lint
-
-      - name: Typecheck (src)
-        run: npm run typecheck
-
-      - name: Typecheck (test)
-        run: npm run typecheck:test
-
-      - name: Build
-        run: npm run build
-
-      - name: Test
-        run: npm test
+      - name: Run full quality gate
+        run: npm run quality
 
       - name: Verify shebang + executable bit on bins
+        if: always()
         run: |
           for f in dist/bin/debug.js dist/bin/debug-daemon.js dist/bin/doctor.js; do
             test -f "$f" || { echo "Missing: $f"; exit 1; }
@@ -49,6 +38,7 @@ jobs:
           done
 
       - name: Verify zero `any` and zero globalThis writes in src/
+        if: always()
         run: |
           if grep -rE ':\s*any\b' src/ --include='*.ts'; then
             echo "Found explicit 'any' types in src/" >&2
@@ -59,28 +49,45 @@ jobs:
             exit 1
           fi
 
-      - name: Smoke — debug.js help loads without error
-        run: |
-          node dist/bin/debug.js help
-
-      - name: Smoke — doctor.js loads without import error
-        run: |
-          # doctor may exit 1 (no inspector running on the runner) — that's expected.
-          # We only fail if it crashes before printing JSON.
-          out=$(node dist/bin/doctor.js || true)
-          echo "$out" | head -3
-          echo "$out" | python3 -c 'import sys, json; json.loads(sys.stdin.read())'
-
-      - name: Report dist size
-        run: du -sh dist/
-
-      - name: Verify skill install end-to-end
+      - name: Verify skill installs end-to-end as Claude Code plugin
+        if: matrix.node == '22'
         run: |
           mkdir -p $HOME/.claude/skills
-          # bin/install.sh re-runs npm install + build; allow it to detect existing build.
           bash bin/install.sh
           test -L $HOME/.claude/skills/debug || { echo "Symlink not created"; exit 1; }
           test -f $HOME/.claude/skills/debug/SKILL.md || { echo "SKILL.md not reachable via symlink"; exit 1; }
           test -f $HOME/.claude/skills/debug/dist/bin/debug.js || { echo "debug.js not reachable via symlink"; exit 1; }
-          # Confirm Claude Code's expected entry point shape.
           head -5 $HOME/.claude/skills/debug/SKILL.md | grep -E '^(name|description|version):' >/dev/null
+
+      - name: Upload quality-reports artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-reports-node${{ matrix.node }}
+          path: quality-reports/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload coverage to summary (Node 22 only)
+        if: always() && matrix.node == '22' && hashFiles('quality-reports/summary.md') != ''
+        run: |
+          {
+            echo "## Quality Gate Summary"
+            echo
+            cat quality-reports/summary.md
+          } >> $GITHUB_STEP_SUMMARY
+
+  # Block merge until quality-gate passes on all matrix entries.
+  required:
+    name: required
+    runs-on: ubuntu-latest
+    needs: quality-gate
+    if: always()
+    steps:
+      - name: Fail if any quality-gate matrix job failed
+        run: |
+          if [[ "${{ needs.quality-gate.result }}" != "success" ]]; then
+            echo "Quality gate failed (result=${{ needs.quality-gate.result }})"
+            exit 1
+          fi
+          echo "Quality gate passed."

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": [
+    "src/lib/types.ts",
+    "src/lib/cdp.ts",
+    "src/lib/daemon-context.ts",
+    "src/lib/detect.ts",
+    "src/lib/events.ts",
+    "src/lib/format.ts",
+    "src/lib/ipc.ts",
+    "src/lib/sourcemap.ts",
+    "src/lib/state.ts"
+  ],
+  "out": "quality-reports/docs",
+  "tsconfig": "tsconfig.json",
+  "skipErrorChecking": false,
+  "validation": {
+    "notExported": true,
+    "invalidLink": true,
+    "notDocumented": false
+  },
+  "treatWarningsAsErrors": false,
+  "logLevel": "Warn",
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "readme": "none",
+  "name": "claude-cdp-debugger API"
+}

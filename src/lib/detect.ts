@@ -13,11 +13,20 @@ import type {
 const STRIP_COMMENTS = /\/\/.*$|\/\*[\s\S]*?\*\//gm;
 const STRIP_TRAILING_COMMA = /,(\s*[}\]])/g;
 
+/**
+ * Tolerant JSON parser used for `.vscode/launch.json` and `.vscode/tasks.json`
+ * which permit `//` and `/* *\/` comments and trailing commas.
+ */
 export function parseJsonc(raw: string): unknown {
   const cleaned = raw.replace(STRIP_COMMENTS, '').replace(STRIP_TRAILING_COMMA, '$1');
   return JSON.parse(cleaned);
 }
 
+/**
+ * Walks up from `startCwd` until it finds a directory containing
+ * `.vscode/launch.json`. Returns the absolute path of that directory or `null`
+ * if no such ancestor exists.
+ */
 export function findProjectRoot(startCwd: string): string | null {
   let dir = resolve(startCwd);
   while (true) {
@@ -28,6 +37,10 @@ export function findProjectRoot(startCwd: string): string | null {
   }
 }
 
+/**
+ * Derives a filesystem-safe slug from a project's absolute path. Used to
+ * namespace per-project files in `/tmp/claude-debug-<slug>.*`.
+ */
 export function slugify(absolutePath: string): string {
   return basename(absolutePath).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
@@ -138,6 +151,14 @@ async function detectInspectorBrk(projectRoot: string): Promise<boolean> {
   }
 }
 
+/**
+ * Discovers and resolves a {@link ProjectConfig} for the project containing
+ * `cwd`. Walks up to find `.vscode/launch.json`, picks an `attach` config,
+ * cross-references `tasks.json` for a Docker container, and detects the
+ * runtime style (compiled vs ts-node).
+ *
+ * Throws with a helpful message if any required piece is missing.
+ */
 export async function detect(cwd: string): Promise<ProjectConfig> {
   const projectRoot = findProjectRoot(cwd);
   if (!projectRoot) {
@@ -156,10 +177,10 @@ export async function detect(cwd: string): Promise<ProjectConfig> {
   const port = attach.port ?? attach.attachSimplePort;
   if (!port) throw new Error(`Attach config has no port: ${JSON.stringify(attach)}`);
 
-  const localRoot = (attach.localRoot ?? '${workspaceFolder}')
-    .replace('${workspaceFolder}', projectRoot)
-    .replace('${workspaceRoot}', projectRoot);
-  const remoteRoot = attach.remoteRoot ?? '/app';
+  const expandWorkspace = (s: string): string =>
+    s.replace('${workspaceFolder}', projectRoot).replace('${workspaceRoot}', projectRoot);
+  const localRoot = expandWorkspace(attach.localRoot ?? '${workspaceFolder}');
+  const remoteRoot = expandWorkspace(attach.remoteRoot ?? '/app');
 
   const container = extractContainerFromTask(tasksJson, attach.preLaunchTask);
   const runtime = await detectRuntime(projectRoot);
@@ -180,6 +201,10 @@ export async function detect(cwd: string): Promise<ProjectConfig> {
   };
 }
 
+/**
+ * Translates an absolute local source path into the remote path the inspector
+ * reports. Throws if `absLocalPath` is not under `cfg.localRoot`.
+ */
 export function localToRemote(absLocalPath: string, cfg: { localRoot: string; remoteRoot: string }): string {
   const rel = relative(cfg.localRoot, absLocalPath);
   if (rel.startsWith('..')) {
@@ -188,6 +213,10 @@ export function localToRemote(absLocalPath: string, cfg: { localRoot: string; re
   return `${cfg.remoteRoot.replace(/\/$/, '')}/${rel.split('\\').join('/')}`;
 }
 
+/**
+ * Reverse of {@link localToRemote}. Returns `null` for paths outside
+ * `cfg.remoteRoot` (e.g., Node internal scripts, npm packages outside the project).
+ */
 export function remoteToLocal(remotePath: string, cfg: { localRoot: string; remoteRoot: string }): string | null {
   const normalizedRemote = remotePath.replace(/^file:\/\//, '');
   const cleanedRoot = cfg.remoteRoot.replace(/\/$/, '');

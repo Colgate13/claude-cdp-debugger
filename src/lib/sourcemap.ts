@@ -10,12 +10,14 @@ interface ConsumerEntry {
   json: RawSourceMap;
 }
 
+/** Forward translation: TypeScript source position → generated JS position. */
 export interface TsToJsResult {
   jsPath: string;
   jsLine: number;
   jsColumn: number;
 }
 
+/** Reverse translation: generated JS position → original TS source position. */
 export interface JsToTsResult {
   tsPath: string;
   tsLine: number | null;
@@ -23,6 +25,12 @@ export interface JsToTsResult {
   name: string | null;
 }
 
+/**
+ * Resolves source-map translations between a project's TypeScript paths and
+ * the JavaScript paths that Node Inspector reports. Caches consumers per
+ * `dist/.js` path. Falls through silently when no `.js.map` is found — callers
+ * should treat `null` as "no translation available; try fallback".
+ */
 export class SourceMapResolver {
   readonly projectRoot: string;
   readonly distDirs: string[];

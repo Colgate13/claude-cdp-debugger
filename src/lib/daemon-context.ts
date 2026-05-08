@@ -6,12 +6,23 @@ import { bpsPath } from './ipc.js';
 import { remoteToLocal } from './detect.js';
 import type { Breakpoint, FrameSummary, FsmState, ProjectConfig, IpcResponse } from './types.js';
 
+/** Async IPC handler signature used by handler-registration helpers. */
 export type IpcHandlerFn = (req: Record<string, unknown>) => Promise<IpcResponse>;
 
+/**
+ * Pending consumer of the next `paused` event. Used by the `wait` command:
+ * a single waiter resolves when CDP reports `Debugger.paused` (or when its
+ * timeout fires).
+ */
 export interface PausedWaiter {
   resolve: (data: { paused: boolean; frame?: FrameSummary | null; timeout?: boolean; already?: boolean }) => void;
 }
 
+/**
+ * Mutable per-daemon context shared between the daemon entry point and the
+ * handler-registration modules. Replaces the `globalThis.__debugDaemon`
+ * registry the JavaScript version used.
+ */
 export class DaemonContext {
   readonly cfg: ProjectConfig;
   readonly slug: string;
@@ -132,6 +143,7 @@ export class DaemonContext {
   }
 }
 
+/** Escapes regex metacharacters so a literal string can safely embed in a `RegExp`. */
 export function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

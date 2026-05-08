@@ -1,0 +1,19 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/bin/debug.ts",
+    "src/bin/debug-daemon.ts",
+    "src/bin/doctor.ts",
+    "scripts/*.mjs",
+    "test/**/*.test.ts",
+    "test-integration/**/*.test.ts"
+  ],
+  "project": [
+    "src/**/*.ts"
+  ],
+  "ignoreExportsUsedInFile": true,
+  "ignoreBinaries": ["socat", "docker"],
+  "rules": {
+    "binaries": "off"
+  }
+}

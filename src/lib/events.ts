@@ -4,6 +4,11 @@ import type { DebugEvent } from './types.js';
 
 const ROTATION_BYTES = 10 * 1024 * 1024;
 
+/**
+ * Append-only NDJSON event log for a debug daemon. Each `append` writes one
+ * JSON object per line, prefixed with a `ts` timestamp. Rotates when file
+ * exceeds 10MB by renaming the current file to `<path>.1`.
+ */
 export class EventLog {
   readonly path: string;
   readonly slug: string;
