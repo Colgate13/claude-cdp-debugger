@@ -1,19 +1,17 @@
 # claude-cdp-debugger
 
-A [Claude Code](https://claude.com/claude-code) skill that lets the agent **live-debug any Node.js service** via the Chrome DevTools Protocol — auto-discovers `.vscode/launch.json`, sets breakpoints, captures pauses, inspects runtime state, and reports back conversationally.
+A [Claude Code](https://claude.com/claude-code) skill for live-debugging Node.js services over the Chrome DevTools Protocol.
 
-> **TL;DR.** You say *"debug `UserService.create`"* → Claude reads the code, picks breakpoints, attaches to your already-running container, waits for the breakpoint to hit, inspects variables, and tells you what it sees in plain language. You drive the request flow (curl/browser); Claude does the inspection.
+You say *"debug `UserService.create`"* → Claude reads the code, picks breakpoints, attaches to your running process, waits for a hit, inspects variables, and reports back in plain language. You drive the request (curl/browser); Claude does the inspection.
 
 ## What it does
 
-- **Auto-discovers project config** from `.vscode/launch.json` (`attach` config) + `.vscode/tasks.json` (Docker container name). No per-project config.
-- **Survives across tool calls.** A long-lived background daemon keeps the CDP WebSocket open while the CLI client (used by Claude via Bash) issues stateless commands.
-- **Source-map aware.** TypeScript line numbers translate to compiled `.js` when source maps exist; falls back to a parallel-path heuristic when they don't.
-- **Conversational pause flow.** Pause events are streamed to a structured event log (`/tmp/claude-debug-<slug>.log`); Claude tails it via the Monitor tool and reacts in real time.
-- **LLM-friendly output.** Variable dumps are auto-formatted: depth-limited (default 2), array-truncated, circular-ref aware, with a hard 8KB payload cap.
-- **Logpoints.** Capture an expression on every hit without pausing the process.
-- **Multi-session.** Debug several services simultaneously (e.g., upstream + downstream of an inter-service call).
-- **Crash recovery.** If the daemon dies, persisted breakpoints reattach with `debug start --reattach`.
+- **Zero per-project config** — discovers the inspector port and (optional) container name from `.vscode/launch.json` + `tasks.json`.
+- **Source-map aware** — set breakpoints in `.ts`, hits the correct line in compiled `.js`.
+- **LLM-friendly variable dumps** — depth-limited, array-truncated, circular-ref aware, capped at 8 KB per response.
+- **Logpoints** — capture an expression on every hit without pausing the process.
+- **Multi-session** — debug several services in parallel (e.g. upstream + downstream of a call).
+- **Crash recovery** — `debug start --reattach` reapplies persisted breakpoints if the daemon dies.
 
 ## Requirements
 
@@ -24,40 +22,37 @@ A [Claude Code](https://claude.com/claude-code) skill that lets the agent **live
 
 ## Install
 
-### As a Claude Code plugin (preferred, once published to a marketplace)
+> **Distribution status.** A Claude Code plugin marketplace manifest is not yet published for this repo, so a single-line `/plugin install …` does **not** work today. The manual install below is the supported path. Once a marketplace manifest lands here, the two-step plugin flow (also documented below) will work.
 
-```bash
-/plugin install claude-cdp-debugger
-```
+### Manual install — works today
 
-### Direct install from this repo
-
-For now, clone and run the installer. It installs deps, builds TypeScript, and symlinks the skill into `~/.claude/skills/debug/`:
+Clone the repo and run the installer. It runs `npm install && npm run build`, then symlinks the skill into `~/.claude/skills/debug/`, so editing the clone updates the skill instantly:
 
 ```bash
 git clone https://github.com/Colgate13/claude-cdp-debugger.git ~/projects/claude-cdp-debugger
 cd ~/projects/claude-cdp-debugger
-bash bin/install.sh   # runs `npm install && npm run build`, then symlinks ~/.claude/skills/debug -> this clone
+bash bin/install.sh
 ```
 
-After install, Claude Code picks up the skill automatically. Trigger it with `/debug` or natural language ("debug X", "set a breakpoint at...", "investigate why...").
+Claude Code picks up the skill automatically on next start. Trigger it with `/debug` or natural language ("debug X", "set a breakpoint at...", "investigate why...").
 
-### Standalone CLI usage (without Claude Code)
+To uninstall: `rm ~/.claude/skills/debug` (it's a symlink — removing it does not delete the clone).
 
-The bins also work outside of Claude Code. After cloning + `npm install && npm run build`:
+### As a Claude Code plugin — once a marketplace manifest is added
 
-```bash
-node ~/projects/claude-cdp-debugger/dist/bin/debug.js doctor
-node ~/projects/claude-cdp-debugger/dist/bin/debug.js start
-node ~/projects/claude-cdp-debugger/dist/bin/debug.js bp set src/user.controller.ts:42
-# ... trigger your code path ...
-node ~/projects/claude-cdp-debugger/dist/bin/debug.js wait
-node ~/projects/claude-cdp-debugger/dist/bin/debug.js eval "dto"
-node ~/projects/claude-cdp-debugger/dist/bin/debug.js resume
-node ~/projects/claude-cdp-debugger/dist/bin/debug.js stop
+Claude Code's plugin system is a **two-step flow**: register the marketplace first, then install plugins from it. There is **no** shortcut that installs a plugin from an unregistered third-party repo in one command.
+
+```text
+/plugin marketplace add Colgate13/claude-cdp-debugger
+/plugin install claude-cdp-debugger@<marketplace-name>
 ```
 
-(Add `~/projects/claude-cdp-debugger/dist/bin` to your `PATH` to drop the `node ... debug.js` prefix.)
+- `Colgate13/claude-cdp-debugger` is the GitHub `owner/repo` (an HTTPS URL or `…#branch` ref also works).
+- `<marketplace-name>` is the `name` field from `.claude-plugin/marketplace.json` in this repo, which the marketplace exposes after the `marketplace add` step.
+
+This path is gated on the repo gaining a `.claude-plugin/marketplace.json` (tracked separately). Until then, prefer the manual install above.
+
+Requires a Claude Code build with the plugin system (`/plugin` available — run `claude --version` to check, and update if `/plugin` is unrecognized).
 
 ## CLI reference
 
@@ -113,6 +108,23 @@ All commands return JSON to stdout. Daemon events are written line-by-line to `/
 - **CLI** (`src/bin/debug.ts` → `dist/bin/debug.js`) is stateless — each invocation opens a Unix socket to the daemon, sends one command, prints the JSON response, exits.
 - **Library code** (`src/lib/`) is split into small TypeScript modules: `types`, `daemon-context`, `detect`, `cdp`, `ipc`, `events`, `state`, `format`, `sourcemap`, `handlers-bp`, `handlers-inspect`.
 
+## Standalone CLI usage (without Claude Code)
+
+The bins also work outside of Claude Code. After cloning + `npm install && npm run build`:
+
+```bash
+node ~/projects/claude-cdp-debugger/dist/bin/debug.js doctor
+node ~/projects/claude-cdp-debugger/dist/bin/debug.js start
+node ~/projects/claude-cdp-debugger/dist/bin/debug.js bp set src/user.controller.ts:42
+# ... trigger your code path ...
+node ~/projects/claude-cdp-debugger/dist/bin/debug.js wait
+node ~/projects/claude-cdp-debugger/dist/bin/debug.js eval "dto"
+node ~/projects/claude-cdp-debugger/dist/bin/debug.js resume
+node ~/projects/claude-cdp-debugger/dist/bin/debug.js stop
+```
+
+(Add `~/projects/claude-cdp-debugger/dist/bin` to your `PATH` to drop the `node ... debug.js` prefix.)
+
 ## Files per session
 
 | Path | Purpose |
@@ -158,54 +170,6 @@ Need more? `debug eval foo.bar.specific.path --depth 4` to dive into a specific 
 - Source-map fallback for compiled projects without `.js.map` is approximate (same line in TS and JS rarely line up exactly)
 - Single CDP target per port — if your process forks workers, you can only attach to one
 - No time-travel debugging (Node has no native support)
-
-## Contributing
-
-PRs welcome. The code is small (~2k lines of TypeScript, builds with `tsc`) and explicitly factored to make adding handlers easy:
-
-- New CLI command? Add a `case` in `src/bin/debug.ts` and a handler in `src/lib/handlers-*.ts`.
-- New domain formatter (e.g., Prisma model)? Extend `src/lib/format.ts`'s `formatObject` switch on `subtype`.
-
-Local dev loop:
-
-```bash
-npm install
-npm run typecheck     # tsc --noEmit
-npm run lint          # eslint
-npm run build         # emit dist/
-npm test              # unit tests (node:test via tsx)
-npm run test:integration  # CDP end-to-end tests (spawns a real Node target)
-node dist/bin/doctor.js
-
-# One-shot full quality gate (lint + typecheck + tests + coverage +
-# duplication + dead-code + docs + audit + bundle size).
-# Writes artifacts to quality-reports/. Exits non-zero if any threshold fails.
-npm run quality
-```
-
-### Quality gate
-
-Every PR runs `npm run quality` on Node 22 and 24 in CI. The gate enforces:
-
-| Check | Tool | Threshold |
-|---|---|---|
-| Lint | ESLint v9 (type-checked) | 0 errors (warnings allowed) |
-| Typecheck (src + test) | tsc strict + noUncheckedIndexedAccess | 0 errors |
-| Unit tests | node:test | all passing |
-| Integration tests | node:test + CDP fixture | all passing |
-| Coverage | c8 | lines ≥60%, branches ≥50%, fns ≥65% |
-| Duplication | jscpd | <5% duplicated tokens |
-| Dead code | knip | 0 unused exports |
-| Docs | typedoc | builds without errors |
-| Doc coverage | custom | ≥50% of `src/lib/` exports have JSDoc |
-| Security audit | `npm audit` | 0 high/critical |
-| Bundle size | custom | dist .js ≤ 100KB |
-
-CI uploads `quality-reports/` as a workflow artifact (per Node version) for inspection.
-
-Each check is also a standalone npm script (e.g., `npm run coverage`,
-`npm run duplication`, `npm run deadcode`, `npm run docs`,
-`npm run docs:coverage`, `npm run audit`, `npm run bundle:size`).
 
 ## License
 
