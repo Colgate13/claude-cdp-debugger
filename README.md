@@ -22,35 +22,43 @@ A [Claude Code](https://claude.com/claude-code) skill that lets the agent **live
 - A `.vscode/launch.json` with an `attach` config (the standard VSCode Node debug pattern)
 - Either `socat` or `curl --unix-socket` (the latter ships with most curl builds)
 
-## Install (as a Claude Code skill)
+## Install
+
+### As a Claude Code plugin (preferred, once published to a marketplace)
 
 ```bash
-git clone https://github.com/<your-user>/claude-cdp-debugger.git ~/projects/claude-cdp-debugger
+/plugin install claude-cdp-debugger
+```
+
+### Direct install from this repo
+
+For now, clone and run the installer. It copies (or symlinks) the skill into `~/.claude/skills/debug/`:
+
+```bash
+git clone https://github.com/Colgate13/claude-cdp-debugger.git ~/projects/claude-cdp-debugger
 cd ~/projects/claude-cdp-debugger
 npm install --omit=dev
-bash bin/install.sh   # symlinks ~/.claude/skills/debug -> this clone
+bash bin/install.sh   # symlinks ~/.claude/skills/debug -> this clone (good for development)
 ```
 
 After install, Claude Code picks up the skill automatically. Trigger it with `/debug` or natural language ("debug X", "set a breakpoint at...", "investigate why...").
 
-## Install (as a standalone CLI, no Claude Code)
+### Standalone CLI usage (without Claude Code)
+
+The bins also work outside of Claude Code. After cloning + `npm install`:
 
 ```bash
-npm install -g claude-cdp-debugger   # publishes the `debug`, `debug-daemon`, `debug-doctor` bins
-```
-
-Then in your project:
-
-```bash
-debug doctor          # validate environment
-debug start           # auto-detects .vscode/launch.json
-debug bp set src/user.controller.ts:42
+node ~/projects/claude-cdp-debugger/bin/debug.mjs doctor
+node ~/projects/claude-cdp-debugger/bin/debug.mjs start
+node ~/projects/claude-cdp-debugger/bin/debug.mjs bp set src/user.controller.ts:42
 # ... trigger your code path ...
-debug wait            # blocks until pause; returns frame + locals
-debug eval "dto"
-debug resume
-debug stop
+node ~/projects/claude-cdp-debugger/bin/debug.mjs wait
+node ~/projects/claude-cdp-debugger/bin/debug.mjs eval "dto"
+node ~/projects/claude-cdp-debugger/bin/debug.mjs resume
+node ~/projects/claude-cdp-debugger/bin/debug.mjs stop
 ```
+
+(Add `~/projects/claude-cdp-debugger/bin` to your `PATH` to drop the `node ... bin/debug.mjs` prefix.)
 
 ## CLI reference
 
