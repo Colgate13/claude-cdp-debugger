@@ -17,15 +17,15 @@ if [[ -e "$TARGET" || -L "$TARGET" ]]; then
   exit 1
 fi
 
+# Install dependencies (including devDeps so we can build) and compile TypeScript → dist/
+echo "Installing dependencies and building..."
+npm install --prefix "$REPO_ROOT" --loglevel=error
+npm run --prefix "$REPO_ROOT" build
+
 ln -s "$REPO_ROOT" "$TARGET"
 echo "Linked $TARGET -> $REPO_ROOT"
 
-if [[ ! -d "$REPO_ROOT/node_modules/chrome-remote-interface" ]]; then
-  echo "Installing dependencies..."
-  npm install --omit=dev --prefix "$REPO_ROOT" --loglevel=error
-fi
-
-node "$REPO_ROOT/bin/doctor.mjs" || true
+node "$REPO_ROOT/dist/bin/doctor.js" || true
 
 echo ""
 echo "Skill installed. Trigger it in Claude Code with /debug or natural language ('debug X')."

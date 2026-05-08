@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    name: validate (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install
+        run: npm install
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck (src)
+        run: npm run typecheck
+
+      - name: Typecheck (test)
+        run: npm run typecheck:test
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Verify shebang + executable bit on bins
+        run: |
+          for f in dist/bin/debug.js dist/bin/debug-daemon.js dist/bin/doctor.js; do
+            test -f "$f" || { echo "Missing: $f"; exit 1; }
+            head -1 "$f" | grep -q '^#!/usr/bin/env node' || { echo "Missing shebang in $f"; exit 1; }
+            test -x "$f" || { echo "Not executable: $f"; exit 1; }
+          done
+
+      - name: Verify zero `any` and zero globalThis writes in src/
+        run: |
+          if grep -rE ':\s*any\b' src/ --include='*.ts'; then
+            echo "Found explicit 'any' types in src/" >&2
+            exit 1
+          fi
+          if grep -rnE 'globalThis\.[A-Za-z_][A-Za-z0-9_]*\s*=' src/ --include='*.ts'; then
+            echo "Found globalThis writes in src/" >&2
+            exit 1
+          fi
+
+      - name: Smoke — debug.js help loads without error
+        run: |
+          node dist/bin/debug.js help
+
+      - name: Smoke — doctor.js loads without import error
+        run: |
+          # doctor may exit 1 (no inspector running on the runner) — that's expected.
+          # We only fail if it crashes before printing JSON.
+          out=$(node dist/bin/doctor.js || true)
+          echo "$out" | head -3
+          echo "$out" | python3 -c 'import sys, json; json.loads(sys.stdin.read())'
+
+      - name: Report dist size
+        run: du -sh dist/
+
+      - name: Verify skill install end-to-end
+        run: |
+          mkdir -p $HOME/.claude/skills
+          # bin/install.sh re-runs npm install + build; allow it to detect existing build.
+          bash bin/install.sh
+          test -L $HOME/.claude/skills/debug || { echo "Symlink not created"; exit 1; }
+          test -f $HOME/.claude/skills/debug/SKILL.md || { echo "SKILL.md not reachable via symlink"; exit 1; }
+          test -f $HOME/.claude/skills/debug/dist/bin/debug.js || { echo "debug.js not reachable via symlink"; exit 1; }
+          # Confirm Claude Code's expected entry point shape.
+          head -5 $HOME/.claude/skills/debug/SKILL.md | grep -E '^(name|description|version):' >/dev/null

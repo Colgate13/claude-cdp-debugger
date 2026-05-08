@@ -1,16 +1,24 @@
-import { readFile, access, readdir } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, basename, resolve, dirname, relative } from 'node:path';
+import type {
+  AttachConfig,
+  LaunchJson,
+  ProjectConfig,
+  Runtime,
+  Task,
+  TasksJson,
+} from './types.js';
 
 const STRIP_COMMENTS = /\/\/.*$|\/\*[\s\S]*?\*\//gm;
 const STRIP_TRAILING_COMMA = /,(\s*[}\]])/g;
 
-function parseJsonc(raw) {
+export function parseJsonc(raw: string): unknown {
   const cleaned = raw.replace(STRIP_COMMENTS, '').replace(STRIP_TRAILING_COMMA, '$1');
   return JSON.parse(cleaned);
 }
 
-export async function findProjectRoot(startCwd) {
+export function findProjectRoot(startCwd: string): string | null {
   let dir = resolve(startCwd);
   while (true) {
     if (existsSync(join(dir, '.vscode', 'launch.json'))) return dir;
@@ -20,44 +28,44 @@ export async function findProjectRoot(startCwd) {
   }
 }
 
-export function slugify(absolutePath) {
+export function slugify(absolutePath: string): string {
   return basename(absolutePath).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
-async function readJsonc(path) {
+async function readJsonc<T>(path: string): Promise<T | null> {
   try {
     const raw = await readFile(path, 'utf8');
-    return parseJsonc(raw);
+    return parseJsonc(raw) as T;
   } catch (err) {
-    if (err.code === 'ENOENT') return null;
-    throw new Error(`Failed to parse ${path}: ${err.message}`);
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw new Error(`Failed to parse ${path}: ${(err as Error).message}`);
   }
 }
 
-function pickAttachConfig(launchJson) {
+function pickAttachConfig(launchJson: LaunchJson | null): AttachConfig | null {
   const configs = launchJson?.configurations ?? [];
-  const attach = configs.find((c) => c.request === 'attach' && (c.port || c.attachSimplePort));
+  const attach = configs.find((c) => c.request === 'attach' && (c.port ?? c.attachSimplePort));
   if (attach) return attach;
   const launchWithSimple = configs.find((c) => c.attachSimplePort);
   return launchWithSimple ?? null;
 }
 
-function extractContainerFromTask(tasksJson, taskLabel) {
+function extractContainerFromTask(tasksJson: TasksJson | null, taskLabel: string | undefined): string | null {
   if (!tasksJson || !taskLabel) return null;
-  const task = (tasksJson.tasks ?? []).find((t) => t.label === taskLabel);
+  const task = (tasksJson.tasks ?? []).find((t: Task) => t.label === taskLabel);
   if (!task) return null;
   const args = task.args ?? [];
   const cmd = task.command;
   if (cmd === 'docker') {
     const startIdx = args.indexOf('start');
-    if (startIdx >= 0 && args[startIdx + 1]) return args[startIdx + 1];
+    if (startIdx >= 0 && args[startIdx + 1]) return args[startIdx + 1] ?? null;
     const runNameIdx = args.indexOf('--name');
-    if (runNameIdx >= 0 && args[runNameIdx + 1]) return args[runNameIdx + 1];
+    if (runNameIdx >= 0 && args[runNameIdx + 1]) return args[runNameIdx + 1] ?? null;
   }
   return null;
 }
 
-async function detectRuntime(projectRoot) {
+async function detectRuntime(projectRoot: string): Promise<Runtime> {
   const startScript = await readStartScript(projectRoot);
   if (startScript) {
     if (/\bnode\s+[^&|;]*\bdist\//.test(startScript)) return 'compiled';
@@ -78,18 +86,18 @@ async function detectRuntime(projectRoot) {
   }
 }
 
-async function readStartScript(projectRoot) {
+async function readStartScript(projectRoot: string): Promise<string | null> {
   try {
     const pkgRaw = await readFile(join(projectRoot, 'package.json'), 'utf8');
-    const pkg = JSON.parse(pkgRaw);
+    const pkg = JSON.parse(pkgRaw) as { scripts?: Record<string, string> };
     const scripts = pkg.scripts ?? {};
-    return scripts['start:debug'] ?? scripts['start'] ?? null;
+    return scripts['start:debug'] ?? scripts.start ?? null;
   } catch {
     return null;
   }
 }
 
-async function readBootstrap(projectRoot) {
+async function readBootstrap(projectRoot: string): Promise<string | null> {
   try {
     return await readFile(join(projectRoot, 'bootstrap.sh'), 'utf8');
   } catch {
@@ -97,7 +105,7 @@ async function readBootstrap(projectRoot) {
   }
 }
 
-async function walkForMaps(dir, depth, maxDepth) {
+async function walkForMaps(dir: string, depth: number, maxDepth: number): Promise<string[]> {
   if (depth > maxDepth) return [];
   let entries;
   try {
@@ -105,7 +113,7 @@ async function walkForMaps(dir, depth, maxDepth) {
   } catch {
     return [];
   }
-  const found = [];
+  const found: string[] = [];
   for (const e of entries) {
     if (e.name.endsWith('.js.map')) {
       found.push(join(dir, e.name));
@@ -118,28 +126,28 @@ async function walkForMaps(dir, depth, maxDepth) {
   return found;
 }
 
-async function detectInspectorBrk(projectRoot) {
+async function detectInspectorBrk(projectRoot: string): Promise<boolean> {
   try {
     const pkgRaw = await readFile(join(projectRoot, 'package.json'), 'utf8');
-    const pkg = JSON.parse(pkgRaw);
+    const pkg = JSON.parse(pkgRaw) as { scripts?: Record<string, string> };
     const scripts = pkg.scripts ?? {};
     const allScripts = Object.values(scripts).join(' ');
-    return /--inspect-brk/.test(allScripts);
+    return allScripts.includes('--inspect-brk');
   } catch {
     return false;
   }
 }
 
-export async function detect(cwd) {
-  const projectRoot = await findProjectRoot(cwd);
+export async function detect(cwd: string): Promise<ProjectConfig> {
+  const projectRoot = findProjectRoot(cwd);
   if (!projectRoot) {
     throw new Error(`No .vscode/launch.json found at or above ${cwd}`);
   }
-  const launchJson = await readJsonc(join(projectRoot, '.vscode', 'launch.json'));
+  const launchJson = await readJsonc<LaunchJson>(join(projectRoot, '.vscode', 'launch.json'));
   if (!launchJson) {
     throw new Error(`Missing .vscode/launch.json at ${projectRoot}`);
   }
-  const tasksJson = await readJsonc(join(projectRoot, '.vscode', 'tasks.json'));
+  const tasksJson = await readJsonc<TasksJson>(join(projectRoot, '.vscode', 'tasks.json'));
   const attach = pickAttachConfig(launchJson);
   if (!attach) {
     throw new Error(`No attach config in ${projectRoot}/.vscode/launch.json`);
@@ -148,7 +156,9 @@ export async function detect(cwd) {
   const port = attach.port ?? attach.attachSimplePort;
   if (!port) throw new Error(`Attach config has no port: ${JSON.stringify(attach)}`);
 
-  const localRoot = (attach.localRoot ?? '${workspaceFolder}').replace('${workspaceFolder}', projectRoot).replace('${workspaceRoot}', projectRoot);
+  const localRoot = (attach.localRoot ?? '${workspaceFolder}')
+    .replace('${workspaceFolder}', projectRoot)
+    .replace('${workspaceRoot}', projectRoot);
   const remoteRoot = attach.remoteRoot ?? '/app';
 
   const container = extractContainerFromTask(tasksJson, attach.preLaunchTask);
@@ -170,20 +180,20 @@ export async function detect(cwd) {
   };
 }
 
-export function localToRemote(absLocalPath, { localRoot, remoteRoot }) {
-  const rel = relative(localRoot, absLocalPath);
+export function localToRemote(absLocalPath: string, cfg: { localRoot: string; remoteRoot: string }): string {
+  const rel = relative(cfg.localRoot, absLocalPath);
   if (rel.startsWith('..')) {
-    throw new Error(`Path ${absLocalPath} is outside localRoot ${localRoot}`);
+    throw new Error(`Path ${absLocalPath} is outside localRoot ${cfg.localRoot}`);
   }
-  return `${remoteRoot.replace(/\/$/, '')}/${rel.split('\\').join('/')}`;
+  return `${cfg.remoteRoot.replace(/\/$/, '')}/${rel.split('\\').join('/')}`;
 }
 
-export function remoteToLocal(remotePath, { localRoot, remoteRoot }) {
+export function remoteToLocal(remotePath: string, cfg: { localRoot: string; remoteRoot: string }): string | null {
   const normalizedRemote = remotePath.replace(/^file:\/\//, '');
-  const cleanedRoot = remoteRoot.replace(/\/$/, '');
+  const cleanedRoot = cfg.remoteRoot.replace(/\/$/, '');
   if (!normalizedRemote.startsWith(cleanedRoot)) {
     return null;
   }
   const rel = normalizedRemote.slice(cleanedRoot.length).replace(/^\//, '');
-  return join(localRoot, rel);
+  return join(cfg.localRoot, rel);
 }
