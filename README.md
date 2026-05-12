@@ -4,6 +4,10 @@ A [Claude Code](https://claude.com/claude-code) plugin that lets the agent live-
 
 Works with any Node.js project that has a `.vscode/launch.json` attach config — NestJS, ts-node, plain Node, or compiled `dist/`. Source-map aware. Multi-session. Logpoints. Crash recovery via `--reattach`.
 
+<p align="center">
+  <img src="docs/assets/architecture.png" alt="claude-cdp-debugger architecture" width="640">
+</p>
+
 ## Requirements
 
 - Node.js **22+**
@@ -11,7 +15,7 @@ Works with any Node.js project that has a `.vscode/launch.json` attach config �
 - A `.vscode/launch.json` with an `attach` configuration
 - Either `socat` or `curl` with Unix socket support
 
-## Install
+## Quick start
 
 ```bash
 git clone https://github.com/Colgate13/claude-cdp-debugger.git
@@ -26,9 +30,26 @@ bash bin/install.sh
 /plugin install claude-cdp-debugger@claude-cdp-debugger
 ```
 
-Done. Trigger the skill with `/cdp` or natural language (`"debug X"`, `"set a breakpoint at..."`, `"investigate why..."`).
+That's it. Inside Claude Code, trigger the skill with `/cdp` or natural language:
+
+- *"debug why `UserService.create` returns 500"*
+- *"set a breakpoint at `auth.controller.ts:42` and watch what hits it"*
+- *"investigate the validation failure in the signup flow"*
+
+Claude does the rest — picks breakpoints, attaches, waits for your request, inspects state, reports back.
 
 > **Need more?** [INSTALL.md](INSTALL.md) covers dev install (hot-reload symlink), troubleshooting the install itself, and standalone CLI usage. Runtime errors are in [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
+## How Claude uses it
+
+1. Reads the source around the user's target (`src/user.service.ts` etc.)
+2. Picks 1–4 strategic breakpoints — function entry, critical branches, suspicious returns
+3. Spawns the daemon in background; tails its event log via the Monitor tool
+4. Tells the user: *"Ready — trigger the request"*
+5. When `paused` events arrive, runs `cdp eval`, `cdp locals`, `cdp stack` to gather context
+6. Reports findings in the chat in plain language, suggests next steps
+7. Steps, resumes, or sets new breakpoints based on what was found
+8. Calls `cdp stop` when the investigation is over
 
 ## CLI reference
 
@@ -55,18 +76,11 @@ cdp resume
 
 All commands return JSON to stdout. Daemon events are written line-by-line to `/tmp/claude-debug-<slug>.log`.
 
-## How Claude uses it
-
-1. Reads the source around the user's target (`/src/user.service.ts` etc.)
-2. Picks 1–4 strategic breakpoints — function entry, critical branches, suspicious returns
-3. Spawns the daemon in background; tails its event log via the Monitor tool
-4. Tells the user: *"Ready — trigger the request"*
-5. When `paused` events arrive, runs `cdp eval`, `cdp locals`, `cdp stack` to gather context
-6. Reports findings in the chat in plain language, suggests next steps
-7. Steps, resumes, or sets new breakpoints based on what was found
-8. Calls `cdp stop` when the investigation is over
-
 ## Architecture
+
+<p align="center">
+  <img src="docs/assets/architecture.png" alt="claude-cdp-debugger architecture" width="640">
+</p>
 
 ```
 ┌─────────────────────────────────────────┐
